@@ -262,6 +262,12 @@ def summarize(oos: pd.DataFrame, target: str) -> dict:
     res["sim"] = sim_capital(oos, 5)
     res["sim_policy"] = sim_capital(oos, 5, trade_days={r["d"] for r in res["net"]["daily"] if r["trade"]})
     res["sim_policy"].pop("daily", None)
+    # 6개월 전 시작 기준(최근 6개월만)
+    dates = sorted(oos["date"].unique())
+    if len(dates) > 130:
+        res["sim6"] = sim_capital(oos[oos["date"] >= dates[-125]], 5)
+        res["sim6"].pop("daily", None)
+        res["sim6"]["start_date"] = str(dates[-125])
     bins = [0, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5, 1.01]
     cut = pd.cut(p, bins, right=False)
     gap_all, oc_all = oos["y_gap"].astype(float).to_numpy(), oos["y_ocx"].astype(float).to_numpy()
