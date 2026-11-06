@@ -181,6 +181,7 @@ def score_today(today: pd.DataFrame, res: dict, universe: list[dict]) -> dict:
                 "market": "코스닥" if r["market_kq"] else "코스피",
                 "close": float(r["close"]), "ret1": float(r["ret1"]),
                 "mcap": float(r["mcap"]) if pd.notna(r["mcap"]) else None,
+                "val": float(np.expm1(r["logval"])) if pd.notna(r.get("logval")) else None,
                 "p": round(float(r[f"p_{key}"]), 4), "raw": round(float(r[f"raw_{key}"]), 4),
                 "hist_rate": b["rate"], "hist_n": b["n"],
                 "halted": r["code"] in halted, "pref": bool(r.get("is_pref", 0)),
@@ -228,12 +229,12 @@ def grade_history(actual: pd.DataFrame) -> list[dict]:
             h["actual_up_count"] = int((a["ret1"] >= 0.295).sum())
             f.write_text(json.dumps(h, ensure_ascii=False))
         graded.append({"target_date": tgt, "graded": h.get("graded", False),
-                       "up_hits": sum(1 for it in h.get("up", [])[:10] if it.get("hit")),
-                       "up_touch": sum(1 for it in h.get("up", [])[:10] if it.get("touch")),
-                       "up_mean_ret": float(np.mean([it["actual_ret"] for it in h.get("up", [])[:10] if "actual_ret" in it])) if any("actual_ret" in it for it in h.get("up", [])[:10]) else None,
-                       "up_mean_oc": float(np.mean([it["actual_oc"] for it in h.get("up", [])[:10] if it.get("actual_oc") is not None])) if any(it.get("actual_oc") is not None for it in h.get("up", [])[:10]) else None,
+                       "up_hits": sum(1 for it in h.get("up", [])[:5] if it.get("hit")),
+                       "up_touch": sum(1 for it in h.get("up", [])[:5] if it.get("touch")),
+                       "up_mean_ret": float(np.mean([it["actual_ret"] for it in h.get("up", [])[:5] if "actual_ret" in it])) if any("actual_ret" in it for it in h.get("up", [])[:5]) else None,
+                       "up_mean_oc": float(np.mean([it["actual_oc"] for it in h.get("up", [])[:5] if it.get("actual_oc") is not None])) if any(it.get("actual_oc") is not None for it in h.get("up", [])[:5]) else None,
                        "actual_up_count": h.get("actual_up_count"),
-                       "up": [{"name": it["name"], "p": it["p"], "ret": it.get("actual_ret"), "oc": it.get("actual_oc"), "hit": it.get("hit")} for it in h.get("up", [])[:10]]})
+                       "up": [{"name": it["name"], "p": it["p"], "ret": it.get("actual_ret"), "oc": it.get("actual_oc"), "hit": it.get("hit")} for it in h.get("up", [])[:5]]})
     return graded
 
 

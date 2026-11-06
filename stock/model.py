@@ -141,9 +141,13 @@ def summarize(oos: pd.DataFrame, target: str) -> dict:
     res["monthly"] = []
     for m, g in oos.groupby("ym"):
         t10 = g.groupby("date", group_keys=False).apply(lambda x: x.nlargest(10, "p"))
-        res["monthly"].append({"ym": m, "p@10": precision_at_k(g, "p", target, 10)[0], "pos": int(g[target].sum()),
+        t5 = g.groupby("date", group_keys=False).apply(lambda x: x.nlargest(5, "p"))
+        res["monthly"].append({"ym": m, "p@10": precision_at_k(g, "p", target, 10)[0], "p@5": precision_at_k(g, "p", target, 5)[0],
+                               "pos": int(g[target].sum()),
                                "days": int(g["date"].nunique()), "oc@10": float(t10["y_oc"].astype(float).mean()),
-                               "gap@10": float(t10["y_gap"].astype(float).mean())})
+                               "gap@10": float(t10["y_gap"].astype(float).mean()),
+                               "oc@5": float(t5.loc[t5["y_gap"] < 0.295, "y_oc"].astype(float).mean()),
+                               "gap@5": float(t5["y_gap"].astype(float).mean())})
     return res
 
 
