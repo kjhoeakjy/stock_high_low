@@ -1,4 +1,4 @@
-"""학습·검증·예측. LightGBM 이진 모델 2개(상한가·하한가) + 워크포워드 OOS 검증 + 등온 보정.
+"""학습·검증·예측. LightGBM 상한가 이진 모델 + 워크포워드 OOS 검증 + 등온 보정.
 
 메모리: 특징 행렬을 float32 numpy로 한 번만 만들고 패널은 라벨·키만 남긴다.
 """
@@ -39,7 +39,7 @@ class Panel:
         self.date = df["date"].to_numpy()
         self.code = df["code"].to_numpy()
         self.close = df["close"].to_numpy("float32")
-        self.y = {t: df[t].to_numpy("int8") for t in ("y_up", "y_dn")}
+        self.y = {t: df[t].to_numpy("int8") for t in ("y_up",)}
         self.y_gap = df["y_gap"].to_numpy("float32")
         self.y_oc = df["y_oc"].to_numpy("float32")
         self.next_date = df["next_date"].to_numpy()
@@ -120,7 +120,7 @@ def summarize(oos: pd.DataFrame, target: str) -> dict:
         res[f"p@{k}"] = pr
         res[f"hits@{k}"] = cnt
     # 시가 매수 기준 결과(상위 k): 시가 갭, 시가→종가, 시가가 이미 제한가인 비율
-    sign = 1.0 if target == "y_up" else -1.0
+    sign = 1.0
     for k in (5, 10):
         tops = oos.groupby("date", group_keys=False).apply(lambda g: g.nlargest(k, "p"))
         gap, oc = tops["y_gap"].astype(float), tops["y_oc"].astype(float)
@@ -130,8 +130,7 @@ def summarize(oos: pd.DataFrame, target: str) -> dict:
         res[f"oc_med@{k}"] = float(oc.median())
         res[f"unbuyable@{k}"] = float(((sign * gap) >= 0.295).mean())
         res[f"oc_mean_ex_unbuyable@{k}"] = float(oc[(sign * gap) < 0.295].mean()) if ((sign * gap) < 0.295).any() else None
-    bins = ([0, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5, 1.01] if target == "y_up"
-            else [0, 0.001, 0.003, 0.01, 0.03, 0.1, 0.3, 1.01])
+    bins = [0, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5, 1.01]
     cut = pd.cut(p, bins, right=False)
     tab = pd.DataFrame({"y": y, "b": cut}).groupby("b", observed=True)["y"].agg(["mean", "size"])
     res["buckets"] = [{"lo": float(i.left), "hi": float(i.right), "rate": float(r["mean"]), "n": int(r["size"])}
@@ -169,7 +168,7 @@ def run(df: pd.DataFrame, months: int = 12, rounds: int = ROUNDS, n_seeds: int =
     p = Panel(df)
     print(f"[model] {len(p.cols)} features, X {p.X.shape} ({p.X.nbytes/1e9:.1f}GB)")
     result = {"features": p.cols, "targets": {}}
-    for target in ("y_up", "y_dn"):
+    for target in ("y_up",):
         oos = walk_forward(p, target, months, rounds)
         stats = summarize(oos, target)
         print(f"[model] {target} OOS: {json.dumps({k: v for k, v in stats.items() if k not in ('buckets', 'monthly')}, ensure_ascii=False)}", flush=True)

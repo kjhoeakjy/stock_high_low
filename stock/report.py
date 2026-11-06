@@ -161,12 +161,12 @@ def score_today(today: pd.DataFrame, res: dict, universe: list[dict]) -> dict:
     over = _load_json("overnight.json") or {}
     halted |= {c for c, v in status.items() if v.get("halt")}
     today = today[(today["volume"] > 0) & ~today["code"].isin(halted)]
-    out = {"as_of": last_date, "up": [], "dn": [], "n_scored": int(len(today))}
+    out = {"as_of": last_date, "up": [], "n_scored": int(len(today))}
     try:
         dart = json.loads((DATA / "dart_today.json").read_text())
     except Exception:  # noqa: BLE001
         dart = []
-    for target, key in (("y_up", "up"), ("y_dn", "dn")):
+    for target, key in (("y_up", "up"),):
         t = res["targets"][target]
         raw = t["model"].predict(today[cols].to_numpy("float32"))
         cal = t["iso"].predict(raw)
@@ -214,29 +214,26 @@ def grade_history(actual: pd.DataFrame) -> list[dict]:
             continue
         tgt = h.get("target_date")
         a = actual[actual["date"] == tgt].set_index("code") if tgt else None
-        for key in ("up", "dn"):
+        for key in ("up",):
             for it in h.get(key, []):
                 if a is not None and it["code"] in a.index:
                     r = a.loc[it["code"]]
                     it["actual_ret"] = float(r["ret1"])
                     it["actual_gap"] = float(r["gap"]) if pd.notna(r["gap"]) else None
                     it["actual_oc"] = float((1 + r["ret1"]) / (1 + r["gap"]) - 1) if pd.notna(r["gap"]) else None
-                    it["hit"] = bool(r["ret1"] >= 0.295) if key == "up" else bool(r["ret1"] <= -0.295)
-                    it["touch"] = bool(r["hi_ret"] >= 0.295) if key == "up" else bool(r["lo_ret"] <= -0.295)
+                    it["hit"] = bool(r["ret1"] >= 0.295)
+                    it["touch"] = bool(r["hi_ret"] >= 0.295)
         if a is not None and len(a):
             h["graded"] = True
             h["actual_up_count"] = int((a["ret1"] >= 0.295).sum())
-            h["actual_dn_count"] = int((a["ret1"] <= -0.295).sum())
             f.write_text(json.dumps(h, ensure_ascii=False))
         graded.append({"target_date": tgt, "graded": h.get("graded", False),
                        "up_hits": sum(1 for it in h.get("up", [])[:10] if it.get("hit")),
                        "up_touch": sum(1 for it in h.get("up", [])[:10] if it.get("touch")),
-                       "dn_hits": sum(1 for it in h.get("dn", [])[:10] if it.get("hit")),
                        "up_mean_ret": float(np.mean([it["actual_ret"] for it in h.get("up", [])[:10] if "actual_ret" in it])) if any("actual_ret" in it for it in h.get("up", [])[:10]) else None,
                        "up_mean_oc": float(np.mean([it["actual_oc"] for it in h.get("up", [])[:10] if it.get("actual_oc") is not None])) if any(it.get("actual_oc") is not None for it in h.get("up", [])[:10]) else None,
-                       "actual_up_count": h.get("actual_up_count"), "actual_dn_count": h.get("actual_dn_count"),
-                       "up": [{"name": it["name"], "p": it["p"], "ret": it.get("actual_ret"), "oc": it.get("actual_oc"), "hit": it.get("hit")} for it in h.get("up", [])[:10]],
-                       "dn": [{"name": it["name"], "p": it["p"], "ret": it.get("actual_ret"), "hit": it.get("hit")} for it in h.get("dn", [])[:10]]})
+                       "actual_up_count": h.get("actual_up_count"),
+                       "up": [{"name": it["name"], "p": it["p"], "ret": it.get("actual_ret"), "oc": it.get("actual_oc"), "hit": it.get("hit")} for it in h.get("up", [])[:10]]})
     return graded
 
 
@@ -272,13 +269,12 @@ def write(last: pd.DataFrame, actual: pd.DataFrame, res: dict, universe: list[di
             mk[sym] = {"date": g["date"].iloc[-1], "close": float(g["close"].iloc[-1]),
                        "r1": float(g["close"].iloc[-1] / g["close"].iloc[-2] - 1)}
     mk["n_up_yesterday"] = int((last["ret1"] >= 0.295).sum())
-    mk["n_dn_yesterday"] = int((last["ret1"] <= -0.295).sum())
 
     doc = {
         "generated_at": (dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
         "as_of": today["as_of"], "target_date": target_date, "n_scored": today["n_scored"],
-        "expected_up": round(today["expected_up"], 2), "expected_dn": round(today["expected_dn"], 2),
-        "up": today["up"], "dn": today["dn"], "market": mk,
+        "expected_up": round(today["expected_up"], 2),
+        "up": today["up"], "market": mk,
         "stats": stats, "importance": imp, "n_features": len(res["features"]),
         "train_rows": n_train, "train_from": train_from,
     }
@@ -287,13 +283,12 @@ def write(last: pd.DataFrame, actual: pd.DataFrame, res: dict, universe: list[di
     doc["history"] = grade_history(actual)
     (OUT / "latest.json").write_text(json.dumps(doc, ensure_ascii=False))
     # 전 종목 점수(검색용, 가벼운 버전)
-    slim = scored[["code", "close", "ret1", "p_up", "p_dn"]].copy()
+    slim = scored[["code", "close", "ret1", "p_up"]].copy()
     names = {u["code"]: u["name"] for u in universe}
     slim["name"] = slim["code"].map(names)
     slim = slim.sort_values("p_up", ascending=False)
     (OUT / "scores.json").write_text(json.dumps(
-        {"as_of": today["as_of"], "rows": [[r.code, r.name, float(r.close), round(float(r.ret1), 4), round(float(r.p_up), 4), round(float(r.p_dn), 4)]
+        {"as_of": today["as_of"], "rows": [[r.code, r.name, float(r.close), round(float(r.ret1), 4), round(float(r.p_up), 4)]
                                           for r in slim.itertuples()]}, ensure_ascii=False))
     print(f"[report] {target_date}: up top {[(i['name'], i['p']) for i in doc['up'][:5]]}")
-    print(f"[report] dn top {[(i['name'], i['p']) for i in doc['dn'][:5]]}")
     return doc

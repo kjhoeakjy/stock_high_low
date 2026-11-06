@@ -144,8 +144,7 @@ def load_morning():
     if j:
         with LOCK:
             STATE["morning"] = {"target_date": j.get("target_date"),
-                                "up": {x["code"]: x["p"] for x in j.get("up", [])},
-                                "dn": {x["code"]: x["p"] for x in j.get("dn", [])}}
+                                "up": {x["code"]: x["p"] for x in j.get("up", [])}}
 
 
 HTML = """<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>상한가 레이더</title>

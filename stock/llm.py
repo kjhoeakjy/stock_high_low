@@ -35,9 +35,9 @@ def annotate(items: list[dict], side: str) -> None:
         ev = it.get("evidence") or {}
         lines = [f'- 공시 {d["t"]} {d["title"]}' for d in ev.get("disclosures", [])[:6]]
         lines += [f'- 뉴스 {n["t"]} {n["title"]}' for n in ev.get("news", [])[:6]]
-        blocks.append(f'[{it["code"]}] {it["name"]} (전일 {it["ret1"]*100:+.1f}%, 모델 {"상한가" if side=="up" else "하한가"} 확률 {it["p"]*100:.0f}%)\n'
+        blocks.append(f'[{it["code"]}] {it["name"]} (전일 {it["ret1"]*100:+.1f}%, 모델 상한가 확률 {it["p"]*100:.0f}%)\n'
                       + ("\n".join(lines) if lines else "- 최근 뉴스·공시 없음"))
-    prompt = f"다음 {len(items)}개 종목을 판독하라. 판독 대상은 {'상한가' if side=='up' else '하한가'} 후보다.\n\n" + "\n\n".join(blocks)
+    prompt = f"다음 {len(items)}개 종목을 판독하라. 판독 대상은 상한가 후보다.\n\n" + "\n\n".join(blocks)
     try:
         with cli.beta.messages.stream(model=MODEL, max_tokens=4000, system=SYSTEM, betas=BETAS, fallbacks="default",
                                       messages=[{"role": "user", "content": prompt}]) as s:
