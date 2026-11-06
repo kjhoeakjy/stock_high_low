@@ -232,7 +232,10 @@ const lsGet=(k,d)=>{try{const v=localStorage.getItem(k);return v==null?d:JSON.pa
 const lsSet=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}};
 const kstToday=()=>new Date(Date.now()+9*3600e3).toISOString().slice(0,10);
 function balances(){return (lsGet(LSK.bal,[])||[]).slice().sort((a,b)=>a.date<b.date?-1:1);}
-function capitalToday(){const b=balances();if(b.length)return b[b.length-1].amt;return lsGet(LSK.cap,1000000);}
+function capitalToday(){const b=balances(), acc=DATA&&DATA.account, accDate=acc&&acc.at?acc.at.slice(0,10):null;
+  // 증권사 계좌 스냅샷(아침 수집)이 있고 그 이후 직접 입력한 잔고가 없으면 계좌 현금을 투자 금액으로
+  if(acc&&acc.cash>0&&!(b.length&&accDate&&b[b.length-1].date>=accDate))return acc.cash;
+  if(b.length)return b[b.length-1].amt;return lsGet(LSK.cap,1000000);}
 function initPlan(){document.getElementById('capital').value=capitalToday();document.getElementById('bal-date').value=kstToday();}
 function applyCapital(){const v=Math.max(0,Math.floor(+document.getElementById('capital').value||0));lsSet(LSK.cap,v);renderPlan(v);}
 function addBalance(){const date=document.getElementById('bal-date').value,amt=Math.floor(+document.getElementById('bal-amt').value||0);if(!date||!amt)return;const b=balances().filter(x=>x.date!==date);b.push({date,amt});lsSet(LSK.bal,b);document.getElementById('bal-amt').value='';document.getElementById('capital').value=capitalToday();renderPlan();renderRecord();}
@@ -255,7 +258,8 @@ function renderPlan(A){
   const items=DATA.up.filter(x=>!x.pref).slice(0,5);
   const {rows,cash}=allocate(items,A,priceOf);
   const spent=A-cash, flag=DATA.trade_today===false;
-  document.getElementById('plansub').innerHTML=(flag?'<span class="halt">미거래 권고</span> 상위 5 평균 점수가 검증 기간 하위 30% 미만 · 현금 보유 권장 · ':'')+`${A.toLocaleString()}원 기준 · 기준가 ${liveOK?'실시간 현재가':'전일 종가(09:00 이후 현재가로 갱신)'} · 09:05~09:20 매수 · 15:15 전 전량 매도`;
+  const acc=DATA.account, accNote=acc&&acc.cash>0?` · 계좌 현금 ${acc.cash.toLocaleString()}원(${(acc.at||'').slice(5,16)} 조회)`:'';
+  document.getElementById('plansub').innerHTML=(flag?'<span class="halt">미거래 권고</span> 상위 5 평균 점수가 검증 기간 하위 30% 미만 · 현금 보유 권장 · ':'')+`${A.toLocaleString()}원 기준 · 기준가 ${liveOK?'실시간 현재가':'전일 종가(09:00 이후 현재가로 갱신)'} · 09:05~09:20 매수 · 15:15 전 전량 매도${accNote}`;
   const tr=rows.map((x,i)=>`<tr${x.locked||x.n===0?' class="ex"':''}><td class="l"><span class="rank">${i+1}</span><b>${x.it.name}</b>${x.locked?' <small>시가 상한가 · 매수 불가</small>':x.n===0?' <small>금액 부족</small>':''}</td><td>${pf(x.it.p_oc!=null?x.it.p_oc:x.it.p)}</td><td>${x.it.p_lock!=null?pf(x.it.p_lock):'-'}</td><td>${Math.round((x.w||0)*100)}%</td><td>${x.price.toLocaleString()}${x.live?'':'<br><small style="color:var(--mut)">전일 종가</small>'}</td><td class="big">${x.n.toLocaleString()}주</td><td>${(x.n*x.price).toLocaleString()}</td></tr>`).join('');
   document.getElementById('plan').innerHTML=rows.length?`<table class="lv"><tr><th class="l">종목</th><th>+10% 확률</th><th>매수 불가 확률</th><th>비중</th><th>기준가</th><th>주수</th><th>매수 금액</th></tr>${tr}<tr><td class="l"><b>합계</b></td><td></td><td></td><td>${Math.round(spent/A*100)||0}%</td><td></td><td></td><td><b>${spent.toLocaleString()}</b><br><small style="color:var(--mut)">남는 현금 ${cash.toLocaleString()}</small></td></tr></table>`:'<div class="ev">후보 없음</div>';
   PLAN={date:td,capital:A,rows:rows.filter(x=>x.n>0).map(x=>({code:x.it.code,name:x.it.name,n:x.n,price:x.price}))};

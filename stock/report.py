@@ -365,6 +365,19 @@ def next_trading_day(as_of: str) -> str:
     return d.strftime("%Y%m%d")
 
 
+def _account() -> dict | None:
+    """증권사 계좌 스냅샷(아침 수집). 화면의 투자 금액 기본값과 보유 종목 표시에 사용. 계좌번호는 담지 않는다."""
+    p = DATA / "kis_account.json"
+    if not p.exists():
+        return None
+    try:
+        a = json.loads(p.read_text())
+        return {"cash": a.get("cash"), "total": a.get("total"), "stock_eval": a.get("stock_eval"), "at": a.get("at"), "mode": a.get("mode"),
+                "holdings": [{"name": h["name"], "qty": h["qty"], "avg": h["avg"], "price": h["price"]} for h in a.get("holdings", [])]}
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _append_perf(doc: dict, st: dict) -> list[dict]:
     """학습 때마다 모델 성능 기록을 perf.json에 누적(같은 기준일은 덮어씀) → 성능 추이 그래프."""
     path = OUT / "perf.json"
@@ -421,6 +434,7 @@ def write(last: pd.DataFrame, actual: pd.DataFrame, res: dict, universe: list[di
     doc = {
         "generated_at": (dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
         "trade_today": trade_today, "trade_score": trade_score, "trade_thr": trade_thr,
+        "account": _account(),
         "as_of": today["as_of"], "target_date": target_date, "n_scored": today["n_scored"],
         "expected_up": round(today["expected_up"], 2),
         "up": today["up"], "market": mk,

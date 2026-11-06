@@ -29,6 +29,10 @@ jobs:
     env:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
+      KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
+      KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
+      KIS_ACCOUNT: ${{ secrets.KIS_ACCOUNT }}
+      KIS_MODE: real
       PYTHONUNBUFFERED: "1"
     steps:
       - uses: actions/checkout@v4
@@ -46,6 +50,17 @@ jobs:
           python -m stock.collect
           python -m stock.collect_text
           python -m stock.collect_extra
+      - name: 증권사 계좌 스냅샷
+        run: |
+          if [ -n "$KIS_APP_KEY" ]; then python -m stock.kis snapshot || echo "[kis] 조회 실패 → 계좌 없이 진행"; fi
+      - name: 토론방 증분 수집
+        run: |
+          if git fetch -q --depth=1 origin board-data 2>/dev/null; then git --work-tree=stock/data checkout -q FETCH_HEAD -- . ; git reset -q; fi
+          python -m stock.collect_board || echo "[board] 수집 실패 → 기존 자료로 진행"
+          if [ -f stock/data/board.parquet ]; then
+            mkdir -p /tmp/bd && cp stock/data/board.parquet stock/data/board_state.json /tmp/bd/
+            (cd /tmp/bd && git init -q -b board-data && git config user.name github-actions && git config user.email actions@github.com && git add -A && git commit -qm "board $(date -u +%Y%m%dT%H%M)" && git push -q -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" board-data) || echo "[board] 브랜치 갱신 실패"
+          fi
       - name: 학습·예측
         run: |
           # 장중 기록(진입·청산)을 채점에 사용
@@ -55,7 +70,7 @@ jobs:
       - name: 데이터 브랜치 갱신
         run: |
           cd stock/data
-          rm -f panel.parquet
+          rm -f panel.parquet board.parquet board_state.json kis_account.json
           git init -q -b stock-data
           git config user.name github-actions
           git config user.email actions@github.com

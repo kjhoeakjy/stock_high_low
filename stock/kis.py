@@ -165,6 +165,14 @@ def main(argv: list[str]) -> None:
         for h in b["holdings"]:
             print("   ", h)
         print(f"[kis] buying_power={k.buying_power():,}")
+    elif cmd == "snapshot":  # 아침 재학습용 계좌 스냅샷(현금·평가·보유) → stock/data/kis_account.json
+        from stock.common import DATA
+        b = k.balance()
+        b["at"] = time.strftime("%Y-%m-%d %H:%M", time.gmtime(time.time() + 9 * 3600))
+        b["mode"] = k.mode
+        DATA.mkdir(parents=True, exist_ok=True)
+        (DATA / "kis_account.json").write_text(json.dumps(b, ensure_ascii=False))
+        print(f"[kis] snapshot cash={b['cash']:,} total={b['total']:,} holdings={len(b['holdings'])}")
     elif cmd == "price":
         print(k.price(argv[1]))
         print(k.orderbook(argv[1]))
