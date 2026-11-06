@@ -1,0 +1,39 @@
+name: 2단계 재순위 실험
+run-name: "2단계 재순위 top=${{ inputs.top || '200' }} epochs=${{ inputs.epochs || '4' }}"
+on:
+  workflow_dispatch:
+    inputs:
+      top:
+        description: "일별 상위 N 후보"
+        default: "200"
+      epochs:
+        description: "GRU 에폭"
+        default: "4"
+      refit:
+        description: "GRU 재학습 주기(개월)"
+        default: "3"
+permissions:
+  contents: read
+jobs:
+  rerank:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q pandas pyarrow numpy lightgbm scikit-learn && pip install -q torch --index-url https://download.pytorch.org/whl/cpu
+      - name: 자료 받기
+        run: |
+          git fetch -q --depth=1 origin stock-data
+          mkdir -p stock/data
+          git --work-tree=stock/data checkout -q FETCH_HEAD -- oos_y_oc10.parquet prices.parquet
+          git reset -q
+      - run: python -m stock.rerank --top=${{ inputs.top || '200' }} --epochs=${{ inputs.epochs || '4' }} --refit=${{ inputs.refit || '3' }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rerank_oos
+          path: stock/data/rerank_oos.parquet
