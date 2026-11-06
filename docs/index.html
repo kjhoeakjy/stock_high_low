@@ -82,7 +82,7 @@ td:first-child,th:first-child{text-align:left}
   <div id="view-live" style="display:none">
     <div class="sub" id="livesub">데이터 조회 중</div>
     <div class="mk" id="livemk"></div>
-    <section><h2 class="pos">장전 후보</h2><div id="live-morning"></div></section>
+    <section><h2 class="pos">장전 후보</h2><div class="h2sub" id="msum"></div><div id="live-morning"></div></section>
     <section><h2 class="pos">현재 상한가</h2><div id="live-limit"></div></section>
     <section><h2>10% 이상 상승</h2><div class="h2sub" id="lockline"></div><div id="live-near"></div></section>
   </div>
@@ -110,7 +110,7 @@ td:first-child,th:first-child{text-align:left}
   </div>
 
   <div class="foot">
-    순위는 시가 매수→종가 +10% 모델 점수 기준. 큰 숫자는 당일 종가 상한가 마감 확률. 시가 매수 수익은 검증표 참조. 전일 종가·야간 해외시장 기준, 장중 변동 미반영. 투자 권유 아님.<br>
+    <span id="rankline"></span>큰 숫자는 당일 종가 상한가 마감 확률. 시가 매수 수익은 검증표 참조. 전일 종가·야간 해외시장 기준, 장중 변동 미반영. 투자 권유 아님.<br>
     자료: 네이버 금융(일봉·투자자별 매매·업종·테마·공시·뉴스), 야후 파이낸스(해외지수·환율), DART. 모델: LightGBM, 등온 보정.
   </div>
 </div>
@@ -140,6 +140,8 @@ async function loadLive(){
   const tbl=(rows,withRank)=>rows.length?`<table class="lv">${head}${rows.map((x,i)=>row(x,i,withRank)).join('')}</table>`:'<div class="ev" style="margin-bottom:18px">없음</div>';
   const mrows=(MODE==='common'?d.morning.filter(x=>!x.pref):MODE==='liquid'?d.morning.filter(x=>!x.pref&&x.val!=null):d.morning).slice(0,5);
   document.getElementById('live-morning').innerHTML=tbl(mrows,true);
+  const nl=mrows.filter(x=>x.status=='상한가').length, nt=mrows.filter(x=>x.status=='도달 후 이탈').length, mr=mrows.length?mrows.reduce((a,x)=>a+x.ret,0)/mrows.length:null, mo=mrows.filter(x=>x.o_ret!=null), moc=mo.length?mo.reduce((a,x)=>a+x.o_ret,0)/mo.length:null;
+  document.getElementById('msum').innerHTML=mrows.length?`<b style="color:var(--up);font-size:20px">${mrows.length}종목 중 상한가 ${nl}</b>${nt?` · 도달 후 이탈 ${nt}`:''} · 평균 등락 <b class="${cls(mr)}">${sgn(mr)}</b>${moc!=null?` · 시가 매수 평균 <b class="${cls(moc)}">${sgn(moc)}</b>`:''}`:'';
   document.getElementById('live-limit').innerHTML=tbl(d.limit,false);
   document.getElementById('live-near').innerHTML=tbl(d.near.slice(0,30),false);
   document.getElementById('lockline').textContent=`장중 상한가 도달 종목의 상한가 마감 비율 ${Math.round(d.lock_rate.all*100)}% · 장전 후보 ${Math.round(d.lock_rate.morning*100)}%`;
@@ -157,6 +159,7 @@ async function main(){
   for(const k of Object.keys(names)){ if(!m[k])continue; mk.insertAdjacentHTML('beforeend',`<div><b>${names[k]}</b><span class="${cls(m[k].r1)}">${sgn(m[k].r1)}</span></div>`);}
   mk.insertAdjacentHTML('beforeend',`<div><b>전일 상한가</b>${m.n_up_yesterday}</div>`);
   document.getElementById('upsub').textContent=`예상 상한가 수 ${d.expected_up.toFixed(1)}`;
+  document.getElementById('rankline').textContent=(d.up[0]&&d.up[0].p_oc!=null)?'순위는 시가 매수→종가 +10% 모델 점수 기준. ':'';
   render('up',d.up,'var(--up)');
   stats(d);
 }
