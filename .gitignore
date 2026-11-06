@@ -1,0 +1,4 @@
+stock/data/
+stock/cache/
+__pycache__/
+*.pyc

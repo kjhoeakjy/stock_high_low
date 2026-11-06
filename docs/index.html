@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>상한가 · 하한가</title>
+<style>
+:root{--bg:#0f1115;--fg:#f2f3f5;--mut:#8b919c;--up:#ff4d4d;--dn:#4d8cff;--card:#171a21;--line:#262a33;--chip:#222631}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:-apple-system,"Apple SD Gothic Neo","Pretendard","Noto Sans KR",system-ui,sans-serif;font-size:20px;line-height:1.45}
+.wrap{max-width:1180px;margin:0 auto;padding:28px 16px 80px}
+h1{font-size:34px;margin:0 0 6px;letter-spacing:-.5px}
+.sub{color:var(--mut);font-size:17px;margin-bottom:22px}
+.mk{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:26px}
+.mk div{background:var(--chip);border-radius:12px;padding:10px 14px;font-size:17px}
+.mk b{font-weight:600;margin-right:8px}
+.pos{color:var(--up)}.neg{color:var(--dn)}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+@media(max-width:860px){.cols{grid-template-columns:1fr}body{font-size:18px}h1{font-size:28px}}
+h2{font-size:26px;margin:0 0 4px}
+.h2sub{color:var(--mut);font-size:16px;margin-bottom:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px 18px;margin-bottom:12px;cursor:pointer}
+.card:hover{border-color:#3a404d}
+.row{display:flex;align-items:baseline;gap:12px}
+.rank{color:var(--mut);font-size:17px;width:28px}
+.name{font-size:24px;font-weight:700;flex:1;letter-spacing:-.3px}
+.name small{font-size:14px;color:var(--mut);font-weight:400;margin-left:6px}
+.p{font-size:28px;font-weight:800;font-variant-numeric:tabular-nums}
+.meta{color:var(--mut);font-size:16px;margin-top:4px;display:flex;gap:14px;flex-wrap:wrap}
+.bar{height:6px;border-radius:3px;background:#2a2f3a;margin-top:10px;overflow:hidden}
+.bar i{display:block;height:100%}
+.det{display:none;margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
+.card.open .det{display:block}
+.rs{list-style:none;padding:0;margin:0 0 10px}
+.rs li{font-size:17px;padding:3px 0;display:flex;gap:10px}
+.rs li:before{content:"▲";font-size:12px;margin-top:6px;color:var(--up)}
+.rs li.m:before{content:"▼";color:var(--dn)}
+.ev{font-size:16px;color:var(--mut)}
+.ev a{color:#c8cdd6;text-decoration:none}
+.ev div{padding:2px 0}
+.stats{margin-top:40px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px}
+.stats h3{margin:0 0 10px;font-size:22px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.kv{background:var(--chip);border-radius:12px;padding:10px 12px}
+.kv b{display:block;font-size:26px;font-weight:800}
+.kv span{color:var(--mut);font-size:15px}
+table{width:100%;border-collapse:collapse;font-size:16px;margin-top:10px}
+td,th{padding:7px 6px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th{color:var(--mut);font-weight:500}
+td:first-child,th:first-child{text-align:left}
+.hit{color:var(--up);font-weight:700}
+.foot{color:var(--mut);font-size:15px;margin-top:40px;line-height:1.6}
+.halt{font-size:13px;background:#3a2a2a;color:#ffb3b3;border-radius:6px;padding:1px 6px;margin-left:6px;vertical-align:middle}
+.tabs{display:flex;gap:8px;margin:14px 0}
+.tabs button{background:var(--chip);color:var(--fg);border:0;border-radius:10px;padding:8px 14px;font-size:16px;cursor:pointer}
+.tabs button.on{background:#3b4252}
+.hist{display:none}.hist.on{display:block}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1 id="title">상한가 · 하한가 후보</h1>
+  <div class="sub" id="sub">불러오는 중</div>
+  <div class="mk" id="mk"></div>
+  <div class="tabs" style="margin:0 0 14px"><button class="on" onclick="setMode('all',this)">전체</button><button onclick="setMode('common',this)">보통주만</button></div>
+  <div class="cols">
+    <section>
+      <h2 class="pos">상한가 후보</h2>
+      <div class="h2sub" id="upsub"></div>
+      <div id="up"></div>
+    </section>
+    <section>
+      <h2 class="neg">하한가 후보</h2>
+      <div class="h2sub" id="dnsub"></div>
+      <div id="dn"></div>
+    </section>
+  </div>
+
+  <div class="stats">
+    <h3>지난 12개월 검증 (매달, 그 이전 데이터로만 학습해 예측)</h3>
+    <div class="grid" id="stat"></div>
+    <div class="tabs"><button class="on" data-t="h-rec">최근 예측 채점</button><button data-t="h-up">상한가 확률 구간별 적중</button><button data-t="h-dn">하한가 확률 구간별 적중</button><button data-t="h-imp">중요 변수</button></div>
+    <div id="h-rec" class="hist on"></div>
+    <div id="h-up" class="hist"></div>
+    <div id="h-dn" class="hist"></div>
+    <div id="h-imp" class="hist"></div>
+  </div>
+
+  <div class="foot">
+    확률은 모델 출력이며 투자 권유가 아닙니다. 상한가·하한가는 드문 사건이라 대부분의 후보는 빗나갑니다. 수치는 전일 종가·밤사이 해외시장 기준이고, 장중 변동은 반영되지 않습니다.<br>
+    자료: 네이버 금융(전 종목 일봉·투자자별 매매·업종·테마·공시), 야후 파이낸스(해외지수·환율), DART. 모델: LightGBM 이진 분류 2개 + 등온 보정.
+  </div>
+</div>
+<script>
+const f=(v,d=1)=>(v*100).toFixed(d)+'%';
+const sgn=v=>(v>0?'+':'')+(v*100).toFixed(2)+'%';
+const won=v=>v>=1e12?(v/1e12).toFixed(1)+'조':Math.round(v/1e8).toLocaleString()+'억';
+const cls=v=>v>0?'pos':v<0?'neg':'';
+let DATA=null, MODE='all';
+function setMode(m,btn){MODE=m;btn.parentNode.querySelectorAll('button').forEach(x=>x.classList.remove('on'));btn.classList.add('on');if(DATA){render('up',DATA.up,'var(--up)');render('dn',DATA.dn,'var(--dn)');}}
+const pf=(v)=>v<0.01?(v*100).toFixed(2)+'%':v<0.1?(v*100).toFixed(1)+'%':(v*100).toFixed(0)+'%';
+async function main(){
+  const r=await fetch('latest.json?'+Date.now());const d=await r.json();DATA=d;
+  const td=d.target_date, as=d.as_of;
+  const fmt=s=>`${s.slice(0,4)}.${s.slice(4,6)}.${s.slice(6,8)}`;
+  document.getElementById('title').textContent=`${fmt(td)} 상한가 · 하한가 후보`;
+  document.getElementById('sub').textContent=`${fmt(as)} 종가와 밤사이 해외시장 기준 · ${d.n_scored.toLocaleString()}종목 중 상위 ${d.up.length} · ${d.generated_at} 생성`;
+  const m=d.market, mk=document.getElementById('mk');
+  const names={KOSPI:'코스피',KOSDAQ:'코스닥',NASDAQ:'나스닥',SOX:'반도체',USDKRW:'환율',VIX:'VIX'};
+  for(const k of Object.keys(names)){ if(!m[k])continue; mk.insertAdjacentHTML('beforeend',`<div><b>${names[k]}</b><span class="${cls(m[k].r1)}">${sgn(m[k].r1)}</span></div>`);}
+  mk.insertAdjacentHTML('beforeend',`<div><b>전일 상한가</b>${m.n_up_yesterday}개</div><div><b>전일 하한가</b>${m.n_dn_yesterday}개</div>`);
+  document.getElementById('upsub').textContent=`오늘 예상 상한가 수 ${d.expected_up.toFixed(1)}개`;
+  document.getElementById('dnsub').textContent=`오늘 예상 하한가 수 ${d.expected_dn.toFixed(1)}개`;
+  render('up',d.up,'var(--up)');render('dn',d.dn,'var(--dn)');
+  stats(d);
+}
+function render(id,items,color){
+  const el=document.getElementById(id);
+  items=(MODE==='common'?items.filter(x=>!x.pref):items).slice(0,15);
+  el.innerHTML=items.map((it,i)=>{
+    const conf=it.hist_rate==null?'':`과거 이 구간 적중 ${pf(it.hist_rate)} (${it.hist_n.toLocaleString()}건)`;
+    const rs=it.reasons.map(x=>`<li class="${x.dir=='-'?'m':''}">${x.text}</li>`).join('');
+    const ev=[...(it.evidence.disclosures||[]).map(x=>`<div>공시 ${x.t} · ${x.title}</div>`),...(it.evidence.news||[]).map(x=>`<div>뉴스 ${x.t.slice(4,6)}.${x.t.slice(6,8)} ${x.t.slice(8,10)}:${x.t.slice(10,12)} · <a href="${x.url}" target="_blank" rel="noopener">${x.title}</a></div>`)].join('');
+    const llm=it.llm?`<div class="ev" style="margin:6px 0 2px;color:${it.llm.verdict=='호재'?'var(--up)':it.llm.verdict=='악재'?'var(--dn)':'var(--mut)'}">뉴스 판독 ${it.llm.verdict}${it.llm.event&&it.llm.event!='없음'?' · '+it.llm.event:''} · ${it.llm.note}</div>`:'';
+    return `<div class="card" onclick="this.classList.toggle('open')">
+      <div class="row"><span class="rank">${i+1}</span><span class="name">${it.name}<small>${it.market} ${it.code}</small>${it.halted?'<span class="halt">거래정지</span>':''}${it.pref?'<span class="halt" style="background:#2b2f3a;color:#aab">우선주</span>':''}${it.alert?`<span class="halt">${['','투자주의','투자경고','투자위험'][it.alert]}</span>`:''}${it.managed?'<span class="halt">관리종목</span>':''}</span><span class="p" style="color:${color}">${pf(it.p)}</span></div>
+      <div class="meta"><span>${it.close.toLocaleString()}원</span><span class="${cls(it.ret1)}">전일 ${sgn(it.ret1)}</span>${it.mcap?`<span>시총 ${won(it.mcap)}</span>`:''}${it.over_ret!=null?`<span class="${cls(it.over_ret)}">밤사이 ${sgn(it.over_ret)}</span>`:''}<span>${conf}</span></div>
+      ${llm}<div class="bar"><i style="width:${Math.min(100,it.p*100*2)}%;background:${color}"></i></div>
+      <div class="det"><ul class="rs">${rs}</ul><div class="ev">${ev||'<div>최근 공시·뉴스 없음</div>'}</div></div>
+    </div>`;}).join('');
+}
+function stats(d){
+  const su=d.stats.y_up, sd=d.stats.y_dn, g=document.getElementById('stat');
+  const kv=(b,s)=>`<div class="kv"><b>${b}</b><span>${s}</span></div>`;
+  g.innerHTML=kv(f(su['p@10'],0),'상한가 상위10 적중률')+kv(su['hits@10'].toFixed(2)+'개','하루 상위10 중 실제 상한가')+kv(f(su.base_rate,2),'아무거나 골랐을 때')+kv((su['p@10']/su.base_rate).toFixed(0)+'배','무작위 대비')
+    +kv(f(sd['p@10'],0),'하한가 상위10 적중률')+kv(sd['hits@10'].toFixed(2)+'개','하루 상위10 중 실제 하한가')+kv(f(sd.base_rate,3),'아무거나 골랐을 때')+kv((sd['p@10']/sd.base_rate).toFixed(0)+'배','무작위 대비');
+  const bt=(s)=>`<table><tr><th>모델 확률</th><th>건수</th><th>실제 적중률</th></tr>${s.buckets.map(b=>`<tr><td>${pf(b.lo)} ~ ${pf(Math.min(b.hi,1))}</td><td>${b.n.toLocaleString()}</td><td>${pf(b.rate)}</td></tr>`).join('')}</table>
+    <table><tr><th>월</th><th>거래일</th><th>실제 발생</th><th>상위10 적중률</th></tr>${s.monthly.map(m=>`<tr><td>${m.ym.slice(0,4)}.${m.ym.slice(4)}</td><td>${m.days}</td><td>${m.pos}</td><td>${f(m['p@10'],0)}</td></tr>`).join('')}</table>`;
+  document.getElementById('h-up').innerHTML=bt(su);document.getElementById('h-dn').innerHTML=bt(sd);
+  const imp=(t)=>Object.entries(d.importance[t]).slice(0,25).map(([k,v])=>`<tr><td>${k}</td><td>${Math.round(v).toLocaleString()}</td></tr>`).join('');
+  document.getElementById('h-imp').innerHTML=`<div class="cols"><table><tr><th>상한가 모델</th><th>기여</th></tr>${imp('y_up')}</table><table><tr><th>하한가 모델</th><th>기여</th></tr>${imp('y_dn')}</table></div>`;
+  const h=(d.history||[]).filter(x=>x.graded).slice(-20).reverse();
+  document.getElementById('h-rec').innerHTML=h.length?`<table><tr><th>날짜</th><th>실제 상한가</th><th>상위10 적중</th><th>장중 터치</th><th>상위10 평균 등락</th><th>실제 하한가</th><th>하한가 적중</th><th>상한가 후보 결과</th></tr>${h.map(x=>`<tr><td>${x.target_date.slice(4,6)}.${x.target_date.slice(6)}</td><td>${x.actual_up_count}</td><td class="${x.up_hits?'hit':''}">${x.up_hits}</td><td>${x.up_touch}</td><td class="${cls(x.up_mean_ret)}">${x.up_mean_ret==null?'':sgn(x.up_mean_ret)}</td><td>${x.actual_dn_count}</td><td class="${x.dn_hits?'hit':''}">${x.dn_hits}</td><td style="white-space:normal;text-align:left">${x.up.map(u=>`<span class="${u.hit?'hit':''}">${u.name} ${u.ret==null?'':sgn(u.ret)}</span>`).join(' · ')}</td></tr>`).join('')}</table>`:'<div class="ev">첫 예측입니다. 다음 날부터 실제 결과를 여기서 채점합니다.</div>';
+  document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('on'));b.classList.add('on');document.querySelectorAll('.hist').forEach(x=>x.classList.remove('on'));document.getElementById(b.dataset.t).classList.add('on');});
+}
+main().catch(e=>{document.getElementById('sub').textContent='아직 데이터가 없습니다. '+e;});
+</script>
+</body>
+</html>
