@@ -112,7 +112,7 @@ td:first-child,th:first-child{text-align:left}
   </div>
 
   <div class="foot">
-    <span id="rankline"></span>시가 상한가(매수 불가) 확률 50% 이상 종목 제외. 큰 숫자는 당일 종가 상한가 마감 확률. 시가 매수 수익은 검증표 참조. 전일 종가·야간 해외시장 기준, 장중 변동 미반영. 투자 권유 아님.<br>
+    <span id="rankline"></span>큰 숫자는 당일 종가 상한가 마감 확률. 시가 매수 수익은 검증표 참조. 전일 종가·야간 해외시장 기준, 장중 변동 미반영. 투자 권유 아님.<br>
     자료: 네이버 금융(일봉·투자자별 매매·업종·테마·공시·뉴스), 야후 파이낸스(해외지수·환율), DART. 모델: LightGBM, 등온 보정.
   </div>
 </div>
@@ -172,7 +172,7 @@ function render(id,items,color){
   items=(MODE==='common'?items.filter(x=>!x.pref):MODE==='liquid'?items.filter(x=>!x.pref&&x.val!=null&&x.val>=1e9):items).slice(0,5);
   el.innerHTML=items.map((it,i)=>{
     const conf=it.hist_rate==null?'':`동일 구간 적중률 ${pf(it.hist_rate)} · ${it.hist_n.toLocaleString()}건`;
-    const trade=it.p_oc==null?'':`<span>시가 매수 +10% 확률 ${pf(it.p_oc)}</span>${it.trade_oc!=null?`<span class="${cls(it.trade_oc)}">동일 구간 시가→종가 ${sgn(it.trade_oc)}</span>`:''}${it.trade_oc_win!=null?`<span>승률 ${pf(it.trade_oc_win)}</span>`:''}${it.p_lock!=null?`<span>시가 상한가 확률 ${pf(it.p_lock)}</span>`:''}`;
+    const trade=it.p_oc==null?'':`<span>시가 매수 +10% 확률 ${pf(it.p_oc)}</span>${it.trade_oc!=null?`<span class="${cls(it.trade_oc)}">동일 구간 시가→종가 ${sgn(it.trade_oc)}</span>`:''}${it.trade_oc_win!=null?`<span>승률 ${pf(it.trade_oc_win)}</span>`:''}${it.p_lock!=null?`<span class="${it.p_lock>=0.5?'neg':''}">매수 불가 확률 ${pf(it.p_lock)}</span>`:''}`;
     const rs=it.reasons.map(x=>`<li class="${x.dir=='-'?'m':''}">${x.text}</li>`).join('');
     const ev=[...(it.evidence.disclosures||[]).map(x=>`<div>공시 ${x.t} · ${x.title}</div>`),...(it.evidence.news||[]).map(x=>`<div>뉴스 ${x.t.slice(4,6)}.${x.t.slice(6,8)} ${x.t.slice(8,10)}:${x.t.slice(10,12)} · <a href="${x.url}" target="_blank" rel="noopener">${x.title}</a></div>`)].join('');
     const llm=it.llm?`<div class="ev" style="margin:6px 0 2px;color:${it.llm.verdict=='호재'?'var(--up)':it.llm.verdict=='악재'?'var(--dn)':'var(--mut)'}">뉴스 판정 ${it.llm.verdict}${it.llm.event&&it.llm.event!='없음'?' · '+it.llm.event:''} · ${it.llm.note}</div>`:'';
