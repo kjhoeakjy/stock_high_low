@@ -42,6 +42,8 @@ runs:
         Add-Content $env:GITHUB_ENV "UV_PYTHON_INSTALL_DIR=$($env:UV_PYTHON_INSTALL_DIR)"
         Add-Content $env:GITHUB_ENV "UV_CACHE_DIR=$($env:UV_CACHE_DIR)"
         Add-Content $env:GITHUB_ENV "VIRTUAL_ENV=$venv"
+        Add-Content $env:GITHUB_ENV "PYTHONUTF8=1"
+        Add-Content $env:GITHUB_ENV "PYTHONIOENCODING=utf-8"
         Add-Content $env:GITHUB_ENV "PIPCMD=$uv\uv.exe pip install --python $py"
         Add-Content $env:GITHUB_PATH "$venv\Scripts"
     - shell: bash
