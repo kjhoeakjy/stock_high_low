@@ -15,7 +15,8 @@ import time
 import pandas as pd
 
 from stock.common import DATA
-from stock.model import tradable
+
+MIN_VAL = 1e9
 
 OUT = DATA / "minute_open.parquet"
 DONE = DATA / "minute_done.json"
@@ -23,7 +24,7 @@ DONE = DATA / "minute_done.json"
 
 def targets(top: int, days: int) -> list[tuple[str, str]]:
     oos = pd.read_parquet(DATA / "oos_y_oc10.parquet")
-    oos = tradable(oos)
+    oos = oos[(oos["pref"] == 0) & (oos["val"] >= MIN_VAL)]
     oos["date"] = oos["date"].astype(str)
     oos["next_date"] = oos["next_date"].astype(str)
     cutoff = (dt.datetime.utcnow() + dt.timedelta(hours=9) - dt.timedelta(days=days)).strftime("%Y%m%d")
