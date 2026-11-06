@@ -88,6 +88,7 @@ tr.ex td{opacity:.5}
 .plan button{background:var(--up);color:#fff;border:0;border-radius:10px;padding:9px 16px;font-size:16px;cursor:pointer}
 .plan details{margin-top:8px}.plan summary{cursor:pointer;color:var(--mut);font-size:15px}
 .plan .lv td.l small{color:var(--mut)}
+.plan .buy{margin:2px 0;font-size:16px}.plan .buy input{width:84px;padding:4px 6px;font-size:15px}
 </style>
 </head>
 <body>
@@ -95,7 +96,16 @@ tr.ex td{opacity:.5}
 <div class="wrap">
   <h1 id="title">GOOD LUCK</h1>
   <div class="sub" id="sub">데이터 조회 중</div>
-  <div class="tabs top" id="toptabs"><button class="on" onclick="setView('morning',this)">장전 후보</button><button onclick="setView('live',this)">실시간</button></div>
+  <div class="tabs top" id="toptabs"><button class="on" onclick="setView('morning',this)">장전 후보</button><button onclick="setView('live',this)">실시간</button><button onclick="setView('record',this)">내 기록</button></div>
+  <div id="view-record" style="display:none" class="plan">
+    <section style="max-width:960px">
+      <h2>내 기록</h2>
+      <div class="h2sub" id="recsub"></div>
+      <div class="ctl"><label>날짜 <input id="bal-date" type="date"></label><label>전량 매도 후 잔고 <input id="bal-amt" type="number" step="1" min="0" inputmode="numeric"> 원</label><button onclick="addBalance()">저장</button></div>
+      <div class="ev" style="margin:4px 0 12px">매수 내역은 장전 후보 탭의 매수 계획에서 "매수 확정"으로 저장. 저장한 잔고가 다음 거래일의 투자 금액이 됨. 기록은 이 기기에만 저장.</div>
+      <div id="myrec"></div>
+    </section>
+  </div>
   <div id="view-live" style="display:none">
     <div class="sub" id="livesub">데이터 조회 중</div>
     <div class="mk" id="livemk"></div>
@@ -110,11 +120,7 @@ tr.ex td{opacity:.5}
     <div class="h2sub" id="plansub"></div>
     <div class="ctl"><label>오늘 투자 금액 <input id="capital" type="number" step="10000" min="0" inputmode="numeric"> 원</label><button onclick="applyCapital()">적용</button></div>
     <div id="plan"></div>
-    <details id="baldet"><summary>장 마감 후 잔고 입력 · 기록</summary>
-      <div class="ctl"><label>날짜 <input id="bal-date" type="date"></label><label>전량 매도 후 잔고 <input id="bal-amt" type="number" step="1" min="0" inputmode="numeric"> 원</label><button onclick="addBalance()">저장</button></div>
-      <div class="ev" style="margin:4px 0 8px">저장한 잔고가 다음 거래일의 투자 금액이 됨. 기록은 이 기기에만 저장.</div>
-      <div id="bal-hist"></div>
-    </details>
+    <div class="ctl"><button onclick="confirmPlan()">매수 확정 · 내 기록에 저장</button><span id="planmsg" style="color:var(--mut);font-size:15px"></span></div>
   </section>
   <section style="max-width:960px">
     <h2 class="pos">상한가 후보</h2>
@@ -149,7 +155,8 @@ const cls=v=>v>0?'pos':v<0?'neg':'';
 let DATA=null, MODE='all', VIEW='morning', LIVE_T=null, LIVE=null;
 const LIVE_URL='https://raw.githubusercontent.com/kjhoeakjy/stock_high_low/live/live.json';
 function setView(v,btn){VIEW=v;btn.parentNode.querySelectorAll('button').forEach(x=>x.classList.remove('on'));btn.classList.add('on');
-  document.getElementById('view-morning').style.display=v==='morning'?'':'none';document.getElementById('view-live').style.display=v==='live'?'':'none';
+  document.getElementById('view-morning').style.display=v==='morning'?'':'none';document.getElementById('view-live').style.display=v==='live'?'':'none';document.getElementById('view-record').style.display=v==='record'?'':'none';
+  if(v==='record')renderRecord();
   try{localStorage.setItem('view',v)}catch(e){}
   if(v==='live'){loadLive();if(!LIVE_T)LIVE_T=setInterval(()=>{if(VIEW==='live')loadLive();},20000);}}
 async function loadLive(){
@@ -228,8 +235,8 @@ function balances(){return (lsGet(LSK.bal,[])||[]).slice().sort((a,b)=>a.date<b.
 function capitalToday(){const b=balances();if(b.length)return b[b.length-1].amt;return lsGet(LSK.cap,1000000);}
 function initPlan(){document.getElementById('capital').value=capitalToday();document.getElementById('bal-date').value=kstToday();}
 function applyCapital(){const v=Math.max(0,Math.floor(+document.getElementById('capital').value||0));lsSet(LSK.cap,v);renderPlan(v);}
-function addBalance(){const date=document.getElementById('bal-date').value,amt=Math.floor(+document.getElementById('bal-amt').value||0);if(!date||!amt)return;const b=balances().filter(x=>x.date!==date);b.push({date,amt});lsSet(LSK.bal,b);document.getElementById('bal-amt').value='';document.getElementById('capital').value=capitalToday();renderPlan();}
-function delBalance(date){lsSet(LSK.bal,balances().filter(x=>x.date!==date));document.getElementById('capital').value=capitalToday();renderPlan();}
+function addBalance(){const date=document.getElementById('bal-date').value,amt=Math.floor(+document.getElementById('bal-amt').value||0);if(!date||!amt)return;const b=balances().filter(x=>x.date!==date);b.push({date,amt});lsSet(LSK.bal,b);document.getElementById('bal-amt').value='';document.getElementById('capital').value=capitalToday();renderPlan();renderRecord();}
+function delBalance(date){lsSet(LSK.bal,balances().filter(x=>x.date!==date));document.getElementById('capital').value=capitalToday();renderPlan();renderRecord();}
 function allocate(items,A,priceOf){
   const cand=items.filter(it=>!it.halted&&!it.managed).map(it=>{const pr=priceOf(it);return {it,price:pr.price,live:pr.live,locked:pr.locked,s:Math.max(0,(it.p_oc!=null?it.p_oc:it.p)*(1-(it.p_lock||0)))};}).filter(x=>x.price>0);
   const ok=cand.filter(x=>!x.locked), tot=ok.reduce((a,x)=>a+x.s,0)||1;
@@ -251,8 +258,33 @@ function renderPlan(A){
   document.getElementById('plansub').innerHTML=(flag?'<span class="halt">미거래 권고</span> 상위 5 평균 점수가 검증 기간 하위 30% 미만 · 현금 보유 권장 · ':'')+`${A.toLocaleString()}원 기준 · 기준가 ${liveOK?'실시간 현재가':'전일 종가(09:00 이후 현재가로 갱신)'} · 09:05~09:20 매수 · 15:15 전 전량 매도`;
   const tr=rows.map((x,i)=>`<tr${x.locked||x.n===0?' class="ex"':''}><td class="l"><span class="rank">${i+1}</span><b>${x.it.name}</b>${x.locked?' <small>시가 상한가 · 매수 불가</small>':x.n===0?' <small>금액 부족</small>':''}</td><td>${pf(x.it.p_oc!=null?x.it.p_oc:x.it.p)}</td><td>${x.it.p_lock!=null?pf(x.it.p_lock):'-'}</td><td>${Math.round((x.w||0)*100)}%</td><td>${x.price.toLocaleString()}${x.live?'':'<br><small style="color:var(--mut)">전일 종가</small>'}</td><td class="big">${x.n.toLocaleString()}주</td><td>${(x.n*x.price).toLocaleString()}</td></tr>`).join('');
   document.getElementById('plan').innerHTML=rows.length?`<table class="lv"><tr><th class="l">종목</th><th>+10% 확률</th><th>매수 불가 확률</th><th>비중</th><th>기준가</th><th>주수</th><th>매수 금액</th></tr>${tr}<tr><td class="l"><b>합계</b></td><td></td><td></td><td>${Math.round(spent/A*100)||0}%</td><td></td><td></td><td><b>${spent.toLocaleString()}</b><br><small style="color:var(--mut)">남는 현금 ${cash.toLocaleString()}</small></td></tr></table>`:'<div class="ev">후보 없음</div>';
-  const b=balances(), start=b.length?b[0].amt:null;
-  document.getElementById('bal-hist').innerHTML=b.length?`<table class="lv"><tr><th class="l">날짜</th><th>잔고</th><th>일 수익률</th><th>누적</th><th></th></tr>${b.map((x,i)=>{const prev=i?b[i-1].amt:null,r=prev?x.amt/prev-1:null,c=start?x.amt/start-1:null;return `<tr><td class="l">${x.date}</td><td>${x.amt.toLocaleString()}</td><td class="${cls(r)}">${r==null?'-':sgn(r)}</td><td class="${cls(c)}">${c==null||i===0?'-':sgn(c)}</td><td><small style="color:var(--mut);cursor:pointer" onclick="delBalance('${x.date}')">삭제</small></td></tr>`;}).join('')}</table>`:'<div class="ev">기록 없음 · 첫 입력이 시작 금액이 됨</div>';
+  PLAN={date:td,capital:A,rows:rows.filter(x=>x.n>0).map(x=>({code:x.it.code,name:x.it.name,n:x.n,price:x.price}))};
+  if(VIEW==='record')renderRecord();
+}
+// ---- 내 기록: 날짜별 매수 내역(확정한 계획)과 마감 잔고로 실제 수익 계산
+let PLAN=null; LSK.tr='gl_trades';
+const fmtDate=s=>s.length===8?`${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`:s;
+function trades(){return (lsGet(LSK.tr,[])||[]).slice().sort((a,b)=>a.date<b.date?-1:1);}
+function confirmPlan(){if(!PLAN||!PLAN.rows.length){document.getElementById('planmsg').textContent='저장할 매수 내역 없음';return;}
+  const date=fmtDate(PLAN.date), t=trades().filter(x=>x.date!==date); t.push({date,capital:PLAN.capital,buys:PLAN.rows}); lsSet(LSK.tr,t);
+  document.getElementById('planmsg').textContent=`${date} 매수 내역 ${PLAN.rows.length}종목 저장됨 · 내 기록 탭에서 수정 가능`;}
+function editBuy(date,i,k,v){const t=trades();const d=t.find(x=>x.date===date);if(!d)return;v=Math.max(0,Math.floor(+v||0));d.buys[i][k]=v;lsSet(LSK.tr,t);renderRecord();}
+function delTrade(date){lsSet(LSK.tr,trades().filter(x=>x.date!==date));renderRecord();}
+function renderRecord(){
+  const el=document.getElementById('myrec'); if(!el)return;
+  const t=trades(), b=balances(), bal={}; b.forEach(x=>{bal[x.date]=x.amt;});
+  const hist={}; ((DATA&&DATA.history)||[]).forEach(h=>{const m={};(h.up||[]).forEach(u=>{m[u.name]=u;});hist[fmtDate(h.target_date)]=m;});
+  const days=[...new Set([...t.map(x=>x.date),...b.map(x=>x.date)])].sort();
+  if(!days.length){el.innerHTML='<div class="ev">기록 없음. 장전 후보 탭에서 매수 확정, 장 마감 후 잔고를 입력하면 여기에 쌓임.</div>';document.getElementById('recsub').textContent='';return;}
+  const first=t.length?t[0].capital:(b.length?b[0].amt:null); let prevBal=null, wins=0, n=0;
+  const rows=days.map(date=>{const d=t.find(x=>x.date===date), amt=bal[date], cap=d?d.capital:prevBal, pnl=(amt!=null&&cap!=null)?amt-cap:null, r=pnl!=null?pnl/cap:null, cum=(amt!=null&&first)?amt/first-1:null;
+    if(r!=null){n++;if(r>0)wins++;} if(amt!=null)prevBal=amt;
+    const hm=hist[date]||{};
+    const buys=d?d.buys.map((x,i)=>{const h=hm[x.name], res=h?(h.tnet!=null?`진입·청산 ${sgn(h.tnet)}`:h.oc!=null?`시가→종가 ${sgn(h.oc)}`:''):'';return `<div class="buy"><b>${x.name}</b> <input type="number" value="${x.n}" onchange="editBuy('${date}',${i},'n',this.value)">주 × <input type="number" value="${x.price}" onchange="editBuy('${date}',${i},'price',this.value)">원 = ${(x.n*x.price).toLocaleString()}${res?` <small class="${cls(h.tnet!=null?h.tnet:h.oc)}">${res}</small>`:''}</div>`;}).join(''):'<small style="color:var(--mut)">매수 내역 없음</small>';
+    return `<tr><td class="l"><b>${date}</b>${d?`<br><small style="color:var(--mut);cursor:pointer" onclick="delTrade('${date}')">매수 내역 삭제</small>`:''}</td><td class="l" style="white-space:normal">${buys}</td><td>${cap!=null?cap.toLocaleString():'-'}</td><td>${amt!=null?amt.toLocaleString():'<small style="color:var(--mut)">미입력</small>'}${amt!=null?`<br><small style="color:var(--mut);cursor:pointer" onclick="delBalance('${date}')">삭제</small>`:''}</td><td class="big ${cls(r)}">${r==null?'-':sgn(r)}${pnl!=null?`<br><small style="color:var(--mut)">${(pnl>=0?'+':'')+pnl.toLocaleString()}원</small>`:''}</td><td class="${cls(cum)}">${cum==null?'-':sgn(cum)}</td></tr>`;});
+  const last=prevBal, cum=(last!=null&&first)?last/first-1:null;
+  document.getElementById('recsub').innerHTML=`시작 ${first!=null?first.toLocaleString()+'원':'-'} · 현재 ${last!=null?last.toLocaleString()+'원':'-'} · 누적 <b class="${cls(cum)}">${cum==null?'-':sgn(cum)}</b> · 거래일 ${n} · 수익일 ${wins}`;
+  el.innerHTML=`<table class="lv"><tr><th class="l">날짜</th><th class="l">매수 내역</th><th>투자 금액</th><th>마감 잔고</th><th>일 수익</th><th>누적</th></tr>${rows.reverse().join('')}</table>`;
 }
 function render(id,items,color){
   const el=document.getElementById(id);
