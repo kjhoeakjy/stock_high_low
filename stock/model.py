@@ -28,6 +28,9 @@ PARAMS = dict(
 ROUNDS = 600
 TRAIN_START = "20200101"
 NEG_KEEP = 0.25  # 음성 다운샘플 비율(가중치로 보정)
+HALF_LIFE = {"y_oc10": 24}  # 표본 가중 반감기(개월). 실험(2026-11-06, 6개월): 24개월 반감기가 최악일·낙폭을 줄임
+N_SEEDS = {"y_up": 3, "y_oc10": 3}  # 운영 모델 시드 앙상블 수. 실험: 3시드 +0.4%p
+WF_SEEDS = {"y_oc10": 3}  # 검증(워크포워드) 시드 수: 매매 모델은 운영과 동일, 표시용 y_up은 1(시간 절약)
 
 
 class Panel:
@@ -59,12 +62,14 @@ class Panel:
 HARD_NEG = 3.0  # 장중 상한가 도달 후 실패한 음성 가중(실험: 시가 매수 수익 +1.2%p)
 
 
-def _weights(p: Panel, idx: np.ndarray, y: np.ndarray, sampled: bool) -> np.ndarray:
+def _weights(p: Panel, idx: np.ndarray, y: np.ndarray, sampled: bool, half_life: float | None = None) -> np.ndarray:
     w = np.ones(len(idx), dtype="float32")
     if sampled:
         w = np.where(y == 1, 1.0, 1.0 / NEG_KEEP).astype("float32")
     hard = (y == 0) & (p.y["y_touch_up"][idx] == 1)
     w = np.where(hard, w * HARD_NEG, w).astype("float32")
+    if half_life:  # 지수 감쇠(반감기 개월). 기준일이 달라도 비율은 같아 워크포워드·운영 모두 동일 효과
+        return w * (0.5 ** (p.age_days[idx] / (half_life * 30.4))).astype("float32")
     # 최근 가중(5년 전 0.5 → 지금 1.0)
     return w * (1.0 - 0.5 * np.clip(p.age_days[idx] / 1825.0, 0, 1)).astype("float32")
 
@@ -80,7 +85,7 @@ def _sample(p: Panel, target: str, mask: np.ndarray, seed: int = 0) -> np.ndarra
 def train_one(p: Panel, target: str, mask: np.ndarray, rounds=ROUNDS, params=PARAMS, seed: int = 0):
     idx = _sample(p, target, mask, seed)
     y = p.y[target][idx]
-    ds = lgb.Dataset(p.X[idx], y, weight=_weights(p, idx, y, True), feature_name=p.cols, free_raw_data=True)
+    ds = lgb.Dataset(p.X[idx], y, weight=_weights(p, idx, y, True, HALF_LIFE.get(target)), feature_name=p.cols, free_raw_data=True)
     prm = dict(params, seed=params["seed"] + seed)
     return lgb.train(prm, ds, num_boost_round=rounds)
 
@@ -95,8 +100,9 @@ def precision_at_k(d: pd.DataFrame, score: str, target: str, k: int) -> tuple[fl
     return float(hits.sum() / max(1, n.sum())), float(hits.mean())
 
 
-def walk_forward(p: Panel, target: str, months: int = 12, rounds: int = ROUNDS) -> pd.DataFrame:
-    """월 단위 워크포워드: 각 달은 그 이전 데이터로만 학습한 모델로 예측."""
+def walk_forward(p: Panel, target: str, months: int = 12, rounds: int = ROUNDS, n_seeds: int | None = None) -> pd.DataFrame:
+    """월 단위 워크포워드: 각 달은 그 이전 데이터로만 학습한 모델(운영과 같은 시드 수 앙상블)로 예측."""
+    n_seeds = n_seeds or WF_SEEDS.get(target, 1)
     y = p.y[target]
     valid = y >= 0
     test_months = sorted(set(p.ym[valid]))[-months:]
@@ -109,7 +115,7 @@ def walk_forward(p: Panel, target: str, months: int = 12, rounds: int = ROUNDS) 
         # 엠바고: 학습 마지막 거래일의 라벨은 테스트 달과 겹치므로 제외
         tr &= p.date < p.date[tr].max()
         t0 = time.time()
-        mdl = train_one(p, target, tr, rounds)
+        mdl = Ensemble([train_one(p, target, tr, rounds, seed=s) for s in range(n_seeds)])
         ti = np.flatnonzero(te)
         pr = mdl.predict(p.X[ti]).astype("float32")
         o = pd.DataFrame({"code": p.code[ti], "date": p.date[ti], "next_date": p.next_date[ti],
@@ -118,7 +124,7 @@ def walk_forward(p: Panel, target: str, months: int = 12, rounds: int = ROUNDS) 
                           "y_up": p.y["y_up"][ti], "pref": p.X[ti, p.cols.index("is_pref")],
                           "val": np.expm1(p.X[ti, p.cols.index("logval")])})
         outs.append(o)
-        print(f"[wf {target}] {m} train={int(tr.sum())} pos={int(y[tr].sum())} test={len(ti)} "
+        print(f"[wf {target}] {m} seeds={n_seeds} train={int(tr.sum())} pos={int(y[tr].sum())} test={len(ti)} "
               f"pos={int(y[ti].sum())} ap={average_precision_score(y[ti], pr):.4f} {time.time()-t0:.0f}s", flush=True)
         del mdl
         gc.collect()
@@ -334,7 +340,7 @@ class Ensemble:
         return np.mean([m.feature_importance(kind) for m in self.models], axis=0)
 
 
-def run(df, months: int = 12, rounds: int = ROUNDS, n_seeds: int = 3) -> dict:
+def run(df, months: int = 12, rounds: int = ROUNDS) -> dict:
     """df: 특징 DataFrame 또는 미리 만든 Panel(호출자가 DataFrame을 지워 메모리를 아낄 수 있음)."""
     p = df if isinstance(df, Panel) else Panel(df)
     print(f"[model] {len(p.cols)} features, X {p.X.shape} ({p.X.nbytes/1e9:.1f}GB)")
@@ -348,7 +354,7 @@ def run(df, months: int = 12, rounds: int = ROUNDS, n_seeds: int = 3) -> dict:
         print(f"[model] {target} OOS: {json.dumps({k: v for k, v in stats.items() if k not in ('buckets', 'monthly', 'horizons', 'net', 'sim', 'sim_policy')}, ensure_ascii=False)}", flush=True)
         iso = fit_calibrator(oos, target)
         full = (p.y[target] >= 0) & (p.date >= TRAIN_START)
-        models = [train_one(p, target, full, rounds, seed=s) for s in range(n_seeds if target == "y_up" else 1)]
+        models = [train_one(p, target, full, rounds, seed=s) for s in range(N_SEEDS.get(target, 1))]
         mdl = Ensemble(models)
         imp = pd.Series(mdl.feature_importance("gain"), index=p.cols).sort_values(ascending=False)
         result["targets"][target] = {"model": mdl, "iso": iso, "oos": oos, "stats": stats,
