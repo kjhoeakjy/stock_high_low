@@ -322,6 +322,7 @@ def grade_history(actual: pd.DataFrame) -> list[dict]:
                        "up_hits": sum(1 for it in h.get("up", [])[:5] if it.get("hit")),
                        "up_touch": sum(1 for it in h.get("up", [])[:5] if it.get("touch")),
                        "up_10": sum(1 for it in h.get("up", [])[:5] if it.get("actual_ret") is not None and it["actual_ret"] >= 0.10),
+                       "up_5": sum(1 for it in h.get("up", [])[:5] if it.get("actual_ret") is not None and it["actual_ret"] >= 0.05),
                        "up_mean_ret": float(np.mean([it["actual_ret"] for it in h.get("up", [])[:5] if "actual_ret" in it])) if any("actual_ret" in it for it in h.get("up", [])[:5]) else None,
                        "up_mean_oc": float(np.mean([it["actual_oc"] for it in h.get("up", [])[:5] if it.get("actual_oc") is not None])) if any(it.get("actual_oc") is not None for it in h.get("up", [])[:5]) else None,
                        "actual_up_count": h.get("actual_up_count"),
@@ -361,7 +362,7 @@ def _append_perf(doc: dict, st: dict) -> list[dict]:
            "train_from": doc.get("train_from"), "pos": st.get("pos"), "days": st.get("days"),
            "p@5": st.get("p@5"), "p@10": st.get("p@10"), "ap": st.get("ap"), "auc": st.get("auc"),
            "base_rate": st.get("base_rate"), "oc@5": st.get("oc_mean_ex_unbuyable@5"), "unb@5": st.get("unbuyable@5"),
-           "up10@5": st.get("up10@5"), "oc10@5": st.get("oc10@5"),
+           "up10@5": st.get("up10@5"), "oc10@5": st.get("oc10@5"), "up5@5": st.get("up5@5"), "oc5@5": st.get("oc5@5"),
            "live_days": len(graded), "live_n": live_n, "live_hits": live_hits,
            "live_rate": (live_hits / live_n) if live_n else None, "live_10": live_10,
            "live_rate10": (live_10 / live_n) if live_n else None}
