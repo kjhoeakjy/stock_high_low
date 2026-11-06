@@ -4,7 +4,7 @@ on:
     inputs:
       script:
         description: "stock/tools/ 아래 스크립트 이름"
-        default: "probe4.sh"
+        default: "probe6.sh"
   push:
     paths: [.github/workflows/probe.yml, stock/tools/probe*.sh]
 jobs:
@@ -13,4 +13,4 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - run: bash stock/tools/${{ inputs.script || 'probe4.sh' }}
+      - run: bash stock/tools/${{ inputs.script || 'probe6.sh' }}
