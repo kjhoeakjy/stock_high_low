@@ -167,7 +167,7 @@ async function loadLive(){
   catch(e){document.getElementById('livesub').textContent='장중 데이터 없음 · 거래일 09:00 이후 갱신';return;}
   LIVE=d; renderRec(); renderPlan();
   const fmtd=s=>`${s.slice(0,4)}.${s.slice(4,6)}.${s.slice(6,8)}`;
-  document.getElementById('livesub').textContent=`${d.at} · 30초 갱신${d.closed?' · 장 마감':''}${d.target_date&&d.date!==d.target_date?' · 장전 후보 '+fmtd(d.target_date)+' 기준':''}`;
+  document.getElementById('livesub').textContent=`${d.at} · 30초 갱신 · 진입·청산가는 30초 시세 기준 추정(실제 체결 아님)${d.closed?' · 장 마감':''}${d.target_date&&d.date!==d.target_date?' · 장전 후보 '+fmtd(d.target_date)+' 기준':''}`;
   const mk=document.getElementById('livemk');mk.innerHTML='';
   if(d.market.KOSPI)mk.insertAdjacentHTML('beforeend',`<div><b>코스피</b><span class="${cls(d.market.KOSPI.r1)}">${sgn(d.market.KOSPI.r1)}</span></div>`);
   if(d.market.KOSDAQ)mk.insertAdjacentHTML('beforeend',`<div><b>코스닥</b><span class="${cls(d.market.KOSDAQ.r1)}">${sgn(d.market.KOSDAQ.r1)}</span></div>`);
@@ -446,7 +446,7 @@ function stats(d){
   document.getElementById('h-up').innerHTML=bt(su);
   const imp=(t)=>Object.entries(d.importance[t]).slice(0,25).map(([k,v])=>`<tr><td>${k}</td><td>${Math.round(v).toLocaleString()}</td></tr>`).join('');
   document.getElementById('h-imp').innerHTML=`<table><tr><th>변수</th><th>기여</th></tr>${imp(trade?'y_oc10':'y_up')}</table>`;
-  document.getElementById('perfsub').textContent=(fromBT?`주 1회 장기 검증(${BT.generated_at.slice(0,10)} 기준, 월 단위 재학습) · `:`매일 재학습 · `)+`학습 데이터 ${(d.train_rows||0).toLocaleString()}행(${(d.train_from||'').slice(0,4)}년 이후) · 변수 ${d.n_features} · 최근 ${HM} ${su.days}거래일 워크포워드 · 실매수 가능 종목(보통주·거래대금 10억↑)만 평가`;
+  document.getElementById('perfsub').textContent=(fromBT?`주 1회 장기 검증(${BT.generated_at.slice(0,10)} 기준, 월 단위 재학습) · `:`매일 재학습 · `)+`학습 데이터 ${(d.train_rows||0).toLocaleString()}행(${(d.train_from||'').slice(0,4)}년 이후) · 변수 ${d.n_features} · 최근 ${HM} ${su.days}거래일 워크포워드 · 실매수 가능 종목(보통주·거래대금 10억↑)만 평가 · 체결 가정: 시가 매수, 손절은 −6%(1%p 미끄러짐), 그 외 종가 매도, 왕복 비용 0.53%`;
   document.getElementById('monthly').innerHTML=(sim&&sim.daily?balSvg(sim.daily):'')+monthlySvg(su.monthly||[]);
   document.getElementById('h-perf').innerHTML=perfSvg(d.perf||[]);
   renderRec();

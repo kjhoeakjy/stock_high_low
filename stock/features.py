@@ -10,6 +10,7 @@ from stock.common import DATA
 
 LIM = 0.295  # 상·하한가 판정 임계(수정주가 오차 허용)
 STOP = 0.05  # 손절선: 매수가 대비 -5% 도달 시 즉시 매도(사용자 규칙)
+STOP_SLIP = 0.01  # 손절 체결 미끄러짐: 급락 중 시장가 매도는 손절선보다 낮게 체결 → -6%로 계산(보수 가정)
 
 
 # ---------------------------------------------------------------- helpers
@@ -283,7 +284,7 @@ def build(prices: pd.DataFrame, flows: pd.DataFrame | None, universe: list[dict]
     oc_close = (1 + nxt) / (1 + nxt_gap) - 1
     oc_lo = (1 + nxt_lo) / (1 + nxt_gap) - 1
     oc_hi = (1 + nxt_hi) / (1 + nxt_gap) - 1
-    df["y_ocx"] = np.where(valid, np.where(oc_lo <= -STOP, -STOP, np.where(nxt_hi >= LIM, oc_hi, oc_close)), np.nan).astype("float32")
+    df["y_ocx"] = np.where(valid, np.where(oc_lo <= -STOP, -(STOP + STOP_SLIP), np.where(nxt_hi >= LIM, oc_hi, oc_close)), np.nan).astype("float32")
     df["next_date"] = _g(df, "date").shift(-1)
 
     df.drop(columns=["_v", "_lr_ex", "_top20", "_bot20", "_indiv_abs"], inplace=True, errors="ignore")

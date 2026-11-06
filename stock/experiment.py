@@ -17,7 +17,7 @@ import pandas as pd
 from sklearn.metrics import average_precision_score
 
 from stock import features
-from stock.model import PARAMS, ROUNDS, TRAIN_START, Panel, _weights, sim_capital
+from stock.model import COST, PARAMS, ROUNDS, TRAIN_START, Panel, _weights, sim_capital
 
 NEW_FEATS = ("r5max", "r20q80", "ret1_sq", "n_top20_20", "n_bot20_20", "n_tb20_20", "vz_small", "indiv_act", "since_alert")
 
@@ -213,7 +213,7 @@ def evaluate(oos: pd.DataFrame, k: int = 5) -> dict:
         res[f"win@{k}{name}"] = float((buy["y_ocx"] > 0).mean())
         res[f"unb@{k}{name}"] = float((tops["y_gap"] >= 0.295).mean())
         res[f"med@{k}{name}"] = float(buy["y_ocx"].median())
-        daily = buy.groupby("date")["y_ocx"].mean() - 0.003
+        daily = buy.groupby("date")["y_ocx"].mean() - COST  # 운영과 같은 왕복 비용
         res[f"dayavg@{k}{name}"] = float(daily.mean())
         res[f"worst@{k}{name}"] = float(daily.min())
         if "close" in d.columns:

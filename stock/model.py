@@ -108,12 +108,13 @@ def _wf_key(p: Panel, target: str, rounds: int, n_seeds: int) -> str:
     """캐시 유효성 키: 모델·특징 코드, 변수 목록, 대상, 설정이 모두 같을 때만 지난달 결과를 재사용."""
     import hashlib
     h = hashlib.sha1()
-    for f in ("model.py", "features.py", "text_features.py"):
+    for f in ("features.py", "text_features.py"):  # 특징·라벨 정의가 바뀌면 전체 재계산
         fp = Path(__file__).with_name(f)
         if fp.exists():
             h.update(fp.read_bytes())
     h.update("|".join(p.cols).encode())
-    h.update(f"{target}|{rounds}|{n_seeds}|{TRAIN_START}|{WF_CACHE_VERSION}".encode())
+    # 학습 설정. train_one/_weights/_sample 코드를 고치면 WF_CACHE_VERSION을 올릴 것
+    h.update(json.dumps([PARAMS, ROUNDS, NEG_KEEP, HARD_NEG, HALF_LIFE.get(target), target, rounds, n_seeds, TRAIN_START, WF_CACHE_VERSION], sort_keys=True, default=str).encode())
     return h.hexdigest()
 
 

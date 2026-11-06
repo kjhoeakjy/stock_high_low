@@ -8,7 +8,7 @@ import re
 import numpy as np
 import pandas as pd
 
-from stock import crypt
+from stock import crypt, features
 from stock.common import DATA, OUT, http_json, pmap
 
 TOP = 25
@@ -322,7 +322,7 @@ def grade_history(actual: pd.DataFrame) -> list[dict]:
                     if pd.notna(r["gap"]):
                         oc_lo = (1 + r["lo_ret"]) / (1 + r["gap"]) - 1
                         ex = r["hi_ret"] if r["hi_ret"] >= 0.295 else r["ret1"]
-                        it["actual_oc"] = -0.05 if oc_lo <= -0.05 else float((1 + ex) / (1 + r["gap"]) - 1)
+                        it["actual_oc"] = -(features.STOP + features.STOP_SLIP) if oc_lo <= -features.STOP else float((1 + ex) / (1 + r["gap"]) - 1)
                     else:
                         it["actual_oc"] = None
                     it["hit"] = bool(r["ret1"] >= 0.295)
