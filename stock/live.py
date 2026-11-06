@@ -148,8 +148,27 @@ EXIT = "1515"
 STOP = 0.05  # 손절선(매수가 대비)  # 청산 기록: 이 시각 이후 첫 스냅샷 가격(15:20 종가 단일가 전)
 
 
+_KIS = {}
+
+
+def _book(code: str) -> dict | None:
+    """한국투자증권 호가(키가 있을 때만). 실패하면 None → 네이버 시세로 대체."""
+    import os
+    if not os.environ.get("KIS_APP_KEY"):
+        return None
+    try:
+        if "c" not in _KIS:
+            from stock.kis import KIS
+            _KIS["c"] = KIS()
+        return _KIS["c"].orderbook(code)
+    except Exception as e:  # noqa: BLE001
+        print(f"[live] 호가 조회 실패 {code}: {e}")
+        return None
+
+
 def trade_log(day: str, hm: str, morning_rows: list[dict], trade_today, hms: str | None = None) -> dict:
-    """장전 상위 5종목의 09:00:30 진입가·15:15 청산가를 기록해 실제 체결 기준 손익을 누적한다."""
+    """장전 상위 5종목의 09:00:30 진입가·15:15 청산가를 기록해 체결 기준 손익을 누적한다.
+    한투 키가 있으면 진입가는 매도1호가, 청산가는 매수1호가(즉시 체결 가능 가격), 없으면 네이버 현재가."""
     hms = hms or hm + "00"
     f = LIVE / "trades" / f"{day}.json"
     log = crypt.read_json(f, None) or {"date": day, "trade": trade_today, "entry_at": None, "exit_at": None, "items": {}}
@@ -160,8 +179,13 @@ def trade_log(day: str, hm: str, morning_rows: list[dict], trade_today, hms: str
             if it and (it.get("entry") or it.get("skip")):
                 continue
             unb = x["status"] == "상한가" or (x.get("gap") is not None and x["gap"] >= 0.295)
-            log["items"][x["code"]] = {"name": x["name"], "rank": x["morning_rank"], "entry": None if unb else x["price"],
-                                       "entry_at": hm, "skip": "시가 상한가" if unb else None}
+            book = None if unb else _book(x["code"])
+            ask1 = book["asks"][0] if book and book["asks"] and book["asks"][0][0] > 0 else None
+            if not unb and book and not ask1:
+                unb = True  # 매도 호가 없음 = 상한가 잠김
+            log["items"][x["code"]] = {"name": x["name"], "rank": x["morning_rank"], "entry": None if unb else (ask1[0] if ask1 else x["price"]),
+                                       "entry_at": hm, "skip": "시가 상한가" if unb else None, "snap": x["price"],
+                                       "basis": "호가" if ask1 else "시세", "ask1_qty": ask1[1] if ask1 else None}
             log["entry_at"] = log["entry_at"] or hm
     # 매도 규칙: 매수가 대비 -5% 도달 시 손절, 상한가 도달 즉시 매도, 아니면 15:15 매도
     for x in top:
@@ -170,9 +194,13 @@ def trade_log(day: str, hm: str, morning_rows: list[dict], trade_today, hms: str
             continue
         stop = x["price"] / it["entry"] - 1 <= -STOP
         if hm >= EXIT or x["status"] == "상한가" or stop:
-            it["exit"], it["exit_at"] = x["price"], hm
+            book = _book(x["code"])
+            bid1 = book["bids"][0] if book and book["bids"] and book["bids"][0][0] > 0 else None
+            px = bid1[0] if bid1 else x["price"]
+            it["exit"], it["exit_at"], it["exit_snap"] = px, hm, x["price"]
+            it["exit_basis"], it["bid1_qty"] = ("호가" if bid1 else "시세"), (bid1[1] if bid1 else None)
             it["exit_why"] = "손절" if stop else ("상한가" if x["status"] == "상한가" and hm < EXIT else "15:15")
-            it["net"] = round(x["price"] / it["entry"] - 1 - TRADE_COST, 4)
+            it["net"] = round(px / it["entry"] - 1 - TRADE_COST, 4)
             log["exit_at"] = log["exit_at"] or hm
     for x in top:
         it = log["items"].get(x["code"])
@@ -183,6 +211,7 @@ def trade_log(day: str, hm: str, morning_rows: list[dict], trade_today, hms: str
     log["open_day"] = round(sum(it["now"] for it in entered) / len(entered), 4) if entered else None
     log["net_day"] = round(sum(it["net"] for it in done) / len(done), 4) if done else None
     log["n_entered"], log["n_skipped"] = len(entered), sum(1 for it in log["items"].values() if it.get("skip"))
+    log["basis"] = "호가" if entered and all(it.get("basis") == "호가" for it in entered) else ("시세" if entered else None)
     (LIVE / "trades").mkdir(parents=True, exist_ok=True)
     crypt.write_json(f, log)
     return log

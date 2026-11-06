@@ -42,6 +42,10 @@ jobs:
         env:
           FORCE: ${{ inputs.force && '--force' || '' }}
           PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
+          KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
+          KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
+          KIS_ACCOUNT: ${{ secrets.KIS_ACCOUNT }}
+          KIS_MODE: real
         run: |
           push() {
             cd live

@@ -139,7 +139,8 @@ def walk_forward(p: Panel, target: str, months: int = 12, rounds: int = ROUNDS, 
             continue
         if cached is not None:
             c = cached[cached["ym"] == m]
-            if len(c) == int(te.sum()):  # 그달 행이 전부 있으면(완료된 달) 재사용
+            # 그달 행 수와 종가 합이 모두 같을 때만 재사용(원천 자료가 소급 수정되면 재계산)
+            if len(c) == int(te.sum()) and abs(float(c["close"].sum()) - float(p.close[te].sum())) <= 1e-3 * max(1.0, float(p.close[te].sum())):
                 outs.append(c.drop(columns=["ym"]))
                 reused.append(m)
                 continue
