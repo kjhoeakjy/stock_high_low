@@ -136,7 +136,7 @@ def tradable(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def net_policy(oos: pd.DataFrame, k: int = 5, q: float = 0.3, warm: int = 20) -> dict:
+def net_policy(oos: pd.DataFrame, k: int = 5, q: float = 0.3, warm: int = 20, trade_days: set | None = None) -> dict:
     """상위 k 시가 매수·종가 매도 순수익(비용 차감)과 미거래일 규칙.
     규칙: 그날 상위 k의 평균 점수가 직전 거래일들의 하위 q 분위 미만이면 거래하지 않음(확장 창, 초기 warm일은 거래)."""
     t = oos.sort_values(["date", "p"], ascending=[True, False]).groupby("date").head(k)
@@ -147,6 +147,8 @@ def net_policy(oos: pd.DataFrame, k: int = 5, q: float = 0.3, warm: int = 20) ->
     day = day.sort_index()
     thr = day["score"].expanding().quantile(q).shift(1)
     day["trade"] = (day.index.isin(day.index[:warm])) | (day["score"] >= thr.fillna(-np.inf))
+    if trade_days is not None:  # 전체 검증 기간에서 정한 거래일을 부분 기간에 그대로 적용
+        day["trade"] = day.index.isin(trade_days)
     tr = day[day["trade"]]
     thr_now = float(day["score"].quantile(q)) if len(day) >= warm else None
     return {"cost": COST, "k": k, "days": int(len(day)), "q": q, "thr": thr_now,
@@ -227,7 +229,8 @@ def sim_capital(oos: pd.DataFrame, k: int = 5, start: float = START_CAPITAL, tra
             "fixed_pnl": round(fixed_pnl), "fixed_cum": fixed_pnl / start, "daily": rows}
 
 
-def summarize(oos: pd.DataFrame, target: str) -> dict:
+def summarize(oos: pd.DataFrame, target: str, trade_days: set | None = None) -> dict:
+    """검증 요약. trade_days: 미거래일 규칙의 거래일 집합(전체 기간 기준, 부분 기간 요약 시 전달)."""
     oos = tradable(oos).reset_index(drop=True)
     y, p = oos[target].to_numpy(), oos["p"].to_numpy()
     res = {"n": int(len(y)), "pos": int(y.sum()), "base_rate": float(y.mean()),
@@ -257,17 +260,12 @@ def summarize(oos: pd.DataFrame, target: str) -> dict:
         if "y_up" in tops.columns:
             res[f"up@{k}"] = float(tops["y_up"].astype(float).mean())
             res[f"net@{k}"] = float((oc[gap < 0.295] - COST).mean()) if (gap < 0.295).any() else None
-    res["net"] = net_policy(oos, 5)
+    res["net"] = net_policy(oos, 5, trade_days=trade_days)
     # 100만 원 시작 복리 시뮬레이션(항상 거래 / 미거래일 규칙 적용)
     res["sim"] = sim_capital(oos, 5)
+    res["sim"]["start_date"] = str(oos["date"].min())
     res["sim_policy"] = sim_capital(oos, 5, trade_days={r["d"] for r in res["net"]["daily"] if r["trade"]})
     res["sim_policy"].pop("daily", None)
-    # 6개월 전 시작 기준(최근 6개월만)
-    dates = sorted(oos["date"].unique())
-    if len(dates) > 130:
-        res["sim6"] = sim_capital(oos[oos["date"] >= dates[-125]], 5)
-        res["sim6"].pop("daily", None)
-        res["sim6"]["start_date"] = str(dates[-125])
     bins = [0, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5, 1.01]
     cut = pd.cut(p, bins, right=False)
     gap_all, oc_all = oos["y_gap"].astype(float).to_numpy(), oos["y_ocx"].astype(float).to_numpy()
@@ -297,6 +295,26 @@ def summarize(oos: pd.DataFrame, target: str) -> dict:
     return res
 
 
+HORIZONS = (1, 6, 12, 36)  # 성능 표기 기간(개월)
+
+
+def summarize_horizons(oos: pd.DataFrame, target: str, horizons=HORIZONS) -> dict:
+    """같은 검증 결과를 최근 1·6·12·36개월(개월당 21거래일)로 잘라 요약. 자료가 짧으면 가능한 기간만."""
+    dates = sorted(oos["date"].astype(str).unique())
+    full = net_policy(tradable(oos), 5)
+    days = {r["d"] for r in full["daily"] if r["trade"]}
+    out = {}
+    for h in horizons:
+        n = h * 21
+        if len(dates) >= n * 0.95:
+            sub = oos[oos["date"] >= dates[-min(n, len(dates))]]
+            out[str(h)] = summarize(sub, target, trade_days=days)
+            out[str(h)]["months"] = h
+    if not out:
+        out[str(max(1, round(len(dates) / 21)))] = summarize(oos, target, trade_days=days)
+    return out
+
+
 def fit_calibrator(oos: pd.DataFrame, target: str) -> IsotonicRegression:
     iso = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
     iso.fit(oos["p"].to_numpy(), oos[target].to_numpy())
@@ -324,8 +342,10 @@ def run(df, months: int = 12, rounds: int = ROUNDS, n_seeds: int = 3) -> dict:
     for target in ("y_up", "y_oc10", "y_lock"):
         # 매수 불가 모델은 제외 판단용: 검증은 최근 4개월만(시간 절약), 확률 보정만 필요
         oos = walk_forward(p, target, months if target != "y_lock" else min(months, 4), rounds)
-        stats = summarize(oos, target)
-        print(f"[model] {target} OOS: {json.dumps({k: v for k, v in stats.items() if k not in ('buckets', 'monthly')}, ensure_ascii=False)}", flush=True)
+        hz = summarize_horizons(oos, target)
+        stats = dict(hz[str(max(int(k) for k in hz))])
+        stats["horizons"] = hz
+        print(f"[model] {target} OOS: {json.dumps({k: v for k, v in stats.items() if k not in ('buckets', 'monthly', 'horizons', 'net', 'sim', 'sim_policy')}, ensure_ascii=False)}", flush=True)
         iso = fit_calibrator(oos, target)
         full = (p.y[target] >= 0) & (p.date >= TRAIN_START)
         models = [train_one(p, target, full, rounds, seed=s) for s in range(n_seeds if target == "y_up" else 1)]

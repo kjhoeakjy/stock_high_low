@@ -1,0 +1,57 @@
+name: 장기 검증
+run-name: "장기 검증 ${{ inputs.months || '36' }}개월"
+
+on:
+  workflow_dispatch:
+    inputs:
+      months:
+        description: "검증 개월 수"
+        default: "36"
+  schedule:
+    # 토요일 09:00 KST(00:00 UTC): 주 1회 36개월 워크포워드
+    - cron: "0 0 * * 6"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stock-backtest
+  cancel-in-progress: true
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    env:
+      PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q -r stock/requirements.txt
+      - name: 데이터 받기
+        run: |
+          git fetch -q --depth=1 origin stock-data
+          mkdir -p stock/data
+          git --work-tree=stock/data checkout -q FETCH_HEAD -- .
+          git reset -q
+          if git fetch -q --depth=1 origin board-data 2>/dev/null; then git --work-tree=stock/data checkout -q FETCH_HEAD -- . ; git reset -q; fi
+          ls stock/data | head -30
+      - name: 검증
+        run: python -m stock.backtest --months=${{ inputs.months || '36' }}
+      - name: 결과 커밋
+        run: |
+          git config user.name github-actions
+          git config user.email actions@github.com
+          python -m stock.crypt docs/backtest.json
+          rm -rf /tmp/out && mkdir -p /tmp/out
+          for f in backtest.json backtest.json.enc; do [ -e "docs/$f" ] && cp "docs/$f" /tmp/out/; done
+          git fetch -q origin ${{ github.ref_name }}
+          git reset -q --hard origin/${{ github.ref_name }}
+          rm -f docs/backtest.json docs/backtest.json.enc
+          cp /tmp/out/. docs/ -r
+          git add docs
+          git diff --cached --quiet || git commit -qm "장기 검증 $(TZ=Asia/Seoul date +%Y-%m-%d)"
+          for i in 1 2 3; do git push -q origin HEAD:${{ github.ref_name }} && break; git pull -q --rebase origin ${{ github.ref_name }}; sleep 5; done
