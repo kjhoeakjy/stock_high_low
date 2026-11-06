@@ -117,6 +117,17 @@ def reasons(model, cols, row: pd.Series, k: int = 6) -> list[dict]:
     return out
 
 
+def _tick(p: float) -> int:
+    return 1 if p < 2000 else 5 if p < 5000 else 10 if p < 20000 else 50 if p < 50000 else 100 if p < 200000 else 500 if p < 500000 else 1000
+
+
+def _up_limit(close: float) -> float:
+    """다음 거래일 상한가(기준가 ×1.3을 호가단위로 내림)."""
+    import math
+    u = close * 1.3
+    return float(math.floor(u / _tick(u)) * _tick(u))
+
+
 def bucket(p: float, stats: dict) -> dict:
     for b in stats.get("buckets", []):
         if b["lo"] <= p < b["hi"]:
@@ -240,7 +251,8 @@ def score_today(today: pd.DataFrame, res: dict, universe: list[dict], recent_p=N
         cal = t["iso"].predict(raw)
         today[f"p_{key}"] = cal.astype("float32")
         today[f"raw_{key}"] = raw.astype("float32")
-        top = today.nlargest(TOP, f"p_{key}")
+        # 순위는 보정 전 원점수로(등온 보정은 동률을 만들어 순위를 흐림), 표시 확률은 보정값
+        top = today.nlargest(TOP, f"raw_{key}")
         items = []
         for _, r in top.iterrows():
             b = bucket(float(r[f"raw_{key}"]), t["stats"])
@@ -257,7 +269,7 @@ def score_today(today: pd.DataFrame, res: dict, universe: list[dict], recent_p=N
                 "halted": r["code"] in halted, "pref": bool(r.get("is_pref", 0)),
                 "alert": (status.get(r["code"]) or {}).get("alert"), "managed": (status.get(r["code"]) or {}).get("managed"),
                 "over_ret": (over.get(r["code"]) or {}).get("over_ret"), "over_status": (over.get(r["code"]) or {}).get("over_status"),
-                "up_limit": (over.get(r["code"]) or {}).get("up_limit"), "dn_limit": (over.get(r["code"]) or {}).get("dn_limit"),
+                "up_limit": _up_limit(float(r["close"])),
                 "reasons": reasons(t["model"], cols, r),
             })
         ev = pmap(lambda it: _evidence(it["code"], it["name"], dart), items, workers=8, label=f"evidence-{key}")
@@ -381,7 +393,7 @@ def write(last: pd.DataFrame, actual: pd.DataFrame, res: dict, universe: list[di
     slim = scored[["code", "close", "ret1", "p_up"]].copy()
     names = {u["code"]: u["name"] for u in universe}
     slim["name"] = slim["code"].map(names)
-    slim = slim.sort_values("p_up", ascending=False)
+    slim = slim.sort_values("p_up", ascending=False, kind="stable")
     (OUT / "scores.json").write_text(json.dumps(
         {"as_of": today["as_of"], "rows": [[r.code, r.name, float(r.close), round(float(r.ret1), 4), round(float(r.p_up), 4)]
                                           for r in slim.itertuples()]}, ensure_ascii=False))
