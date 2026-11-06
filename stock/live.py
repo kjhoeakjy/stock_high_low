@@ -184,7 +184,7 @@ def main():
             "to_limit": round(ul / r["price"] - 1, 4), "up_limit": ul, "val": r.get("val"), "vol": r.get("vol"),
             "open": r.get("open"), "gap": round(r["open"] / prev - 1, 4) if r.get("open") else None,
             "o_ret": round(r["price"] / r["open"] - 1, 4) if r.get("open") else None,
-            "status": "상한가" if at else "터치 후 이탈" if touched else "상승" if r["ret"] > 0 else "하락",
+            "status": "상한가" if at else "도달 후 이탈" if touched else "상승" if r["ret"] > 0 else "하락",
             "p": (m or {}).get("p") if m else scores.get(r["code"], {}).get("p"),
             "morning_rank": (mcodes.index(r["code"]) + 1) if r["code"] in mcodes else None,
             "pref": (m or {}).get("pref", False),

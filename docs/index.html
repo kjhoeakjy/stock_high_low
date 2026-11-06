@@ -77,18 +77,18 @@ td:first-child,th:first-child{text-align:left}
 <body>
 <div class="wrap">
   <h1 id="title">상한가 후보</h1>
-  <div class="sub" id="sub">불러오는 중</div>
-  <div class="tabs top" id="toptabs"><button class="on" onclick="setView('morning',this)">아침 후보</button><button onclick="setView('live',this)">실시간</button></div>
+  <div class="sub" id="sub">데이터 조회 중</div>
+  <div class="tabs top" id="toptabs"><button class="on" onclick="setView('morning',this)">장전 후보</button><button onclick="setView('live',this)">실시간</button></div>
   <div id="view-live" style="display:none">
-    <div class="sub" id="livesub">불러오는 중</div>
+    <div class="sub" id="livesub">데이터 조회 중</div>
     <div class="mk" id="livemk"></div>
-    <section><h2 class="pos">아침 후보</h2><div id="live-morning"></div></section>
-    <section><h2 class="pos">지금 상한가</h2><div id="live-limit"></div></section>
+    <section><h2 class="pos">장전 후보</h2><div id="live-morning"></div></section>
+    <section><h2 class="pos">현재 상한가</h2><div id="live-limit"></div></section>
     <section><h2>10% 이상 상승</h2><div class="h2sub" id="lockline"></div><div id="live-near"></div></section>
   </div>
   <div id="view-morning">
   <div class="mk" id="mk"></div>
-  <div class="tabs" style="margin:0 0 14px"><button class="on" onclick="setMode('all',this)">전체</button><button onclick="setMode('common',this)">보통주만</button><button onclick="setMode('liquid',this)">보통주 10억↑</button></div>
+  <div class="tabs" style="margin:0 0 14px"><button class="on" onclick="setMode('all',this)">전체</button><button onclick="setMode('common',this)">보통주</button><button onclick="setMode('liquid',this)">보통주 10억 이상</button></div>
   <section style="max-width:960px">
     <h2 class="pos">상한가 후보</h2>
     <div class="h2sub" id="upsub"></div>
@@ -110,7 +110,7 @@ td:first-child,th:first-child{text-align:left}
   </div>
 
   <div class="foot">
-    확률 = 당일 종가 상한가 마감 확률. 시가 매수 수익은 검증표 별도. 전일 종가·밤사이 해외시장 기준, 장중 미반영. 투자 권유 아님.<br>
+    확률은 당일 종가 상한가 마감 확률. 시가 매수 수익은 검증표 참조. 전일 종가·야간 해외시장 기준, 장중 변동 미반영. 투자 권유 아님.<br>
     자료: 네이버 금융(일봉·투자자별 매매·업종·테마·공시·뉴스), 야후 파이낸스(해외지수·환율), DART. 모델: LightGBM, 등온 보정.
   </div>
 </div>
@@ -127,22 +127,22 @@ function setView(v,btn){VIEW=v;btn.parentNode.querySelectorAll('button').forEach
   if(v==='live'){loadLive();if(!LIVE_T)LIVE_T=setInterval(()=>{if(VIEW==='live')loadLive();},60000);}}
 async function loadLive(){
   let d;try{const r=await fetch(LIVE_URL+'?t='+Date.now(),{cache:'no-store'});if(!r.ok)throw new Error(r.status);d=await r.json();}
-  catch(e){document.getElementById('livesub').textContent='장중 데이터 없음 · 거래일 09:00부터 5분 간격';return;}
+  catch(e){document.getElementById('livesub').textContent='장중 데이터 없음 · 거래일 09:00 이후 5분 간격 갱신';return;}
   const fmtd=s=>`${s.slice(0,4)}.${s.slice(4,6)}.${s.slice(6,8)}`;
-  document.getElementById('livesub').textContent=`${d.at} · 5분 갱신${d.closed?' · 장 마감':''}${d.target_date&&d.date!==d.target_date?' · 아침 후보 '+fmtd(d.target_date)+' 기준':''}`;
+  document.getElementById('livesub').textContent=`${d.at} · 5분 갱신${d.closed?' · 장 마감':''}${d.target_date&&d.date!==d.target_date?' · 장전 후보 '+fmtd(d.target_date)+' 기준':''}`;
   const mk=document.getElementById('livemk');mk.innerHTML='';
   if(d.market.KOSPI)mk.insertAdjacentHTML('beforeend',`<div><b>코스피</b><span class="${cls(d.market.KOSPI.r1)}">${sgn(d.market.KOSPI.r1)}</span></div>`);
   if(d.market.KOSDAQ)mk.insertAdjacentHTML('beforeend',`<div><b>코스닥</b><span class="${cls(d.market.KOSDAQ.r1)}">${sgn(d.market.KOSDAQ.r1)}</span></div>`);
   mk.insertAdjacentHTML('beforeend',`<div><b>상한가</b>${d.n_limit}</div><div><b>10%↑</b>${d.n_up10}</div>${d.up_ratio!=null?`<div><b>상승 비율</b>${Math.round(d.up_ratio*100)}%</div>`:''}`);
   const st=x=>`<span class="st ${x.status=='상한가'?'lim':''}">${x.status}</span>`;
   const row=(x,i,withRank)=>`<tr><td class="l">${withRank?`<span class="rank">${x.morning_rank||i+1}</span>`:''}<b>${x.name}</b>${x.pref?' <small style="color:var(--mut)">우선주</small>':''}</td><td>${x.p!=null?pf(x.p):'-'}</td><td>${x.price.toLocaleString()}</td><td class="big ${cls(x.ret)}">${sgn(x.ret)}</td><td class="${cls(x.o_ret)}">${x.o_ret==null?'-':sgn(x.o_ret)}</td><td>${x.hi_ret==null?'-':sgn(x.hi_ret)}</td><td>${x.status=='상한가'?'도달':f(x.to_limit,1)}</td><td>${x.val!=null?won(x.val):'-'}</td><td>${st(x)}</td></tr>`;
-  const head=`<tr><th class="l">종목</th><th>아침 확률</th><th>현재가</th><th>등락률</th><th>시가 대비</th><th>고가</th><th>상한가까지</th><th>거래대금</th><th>상태</th></tr>`;
+  const head=`<tr><th class="l">종목</th><th>장전 확률</th><th>현재가</th><th>등락률</th><th>시가 대비</th><th>고가</th><th>상한가 괴리</th><th>거래대금</th><th>상태</th></tr>`;
   const tbl=(rows,withRank)=>rows.length?`<table class="lv">${head}${rows.map((x,i)=>row(x,i,withRank)).join('')}</table>`:'<div class="ev" style="margin-bottom:18px">없음</div>';
   const mrows=(MODE==='common'?d.morning.filter(x=>!x.pref):MODE==='liquid'?d.morning.filter(x=>!x.pref&&x.val!=null):d.morning).slice(0,5);
   document.getElementById('live-morning').innerHTML=tbl(mrows,true);
   document.getElementById('live-limit').innerHTML=tbl(d.limit,false);
   document.getElementById('live-near').innerHTML=tbl(d.near.slice(0,30),false);
-  document.getElementById('lockline').textContent=`장중 상한가 터치 종목의 상한가 마감 비율 ${Math.round(d.lock_rate.all*100)}% · 아침 후보 ${Math.round(d.lock_rate.morning*100)}%`;
+  document.getElementById('lockline').textContent=`장중 상한가 도달 종목의 상한가 마감 비율 ${Math.round(d.lock_rate.all*100)}% · 장전 후보 ${Math.round(d.lock_rate.morning*100)}%`;
 }
 function setMode(m,btn){MODE=m;btn.parentNode.querySelectorAll('button').forEach(x=>x.classList.remove('on'));btn.classList.add('on');if(DATA){render('up',DATA.up,'var(--up)');}}
 const pf=(v)=>v<0.01?(v*100).toFixed(2)+'%':v<0.1?(v*100).toFixed(1)+'%':(v*100).toFixed(0)+'%';
@@ -164,13 +164,13 @@ function render(id,items,color){
   const el=document.getElementById(id);
   items=(MODE==='common'?items.filter(x=>!x.pref):MODE==='liquid'?items.filter(x=>!x.pref&&x.val!=null&&x.val>=1e9):items).slice(0,5);
   el.innerHTML=items.map((it,i)=>{
-    const conf=it.hist_rate==null?'':`구간 적중 ${pf(it.hist_rate)} · ${it.hist_n.toLocaleString()}건`;
+    const conf=it.hist_rate==null?'':`동일 구간 적중률 ${pf(it.hist_rate)} · ${it.hist_n.toLocaleString()}건`;
     const rs=it.reasons.map(x=>`<li class="${x.dir=='-'?'m':''}">${x.text}</li>`).join('');
     const ev=[...(it.evidence.disclosures||[]).map(x=>`<div>공시 ${x.t} · ${x.title}</div>`),...(it.evidence.news||[]).map(x=>`<div>뉴스 ${x.t.slice(4,6)}.${x.t.slice(6,8)} ${x.t.slice(8,10)}:${x.t.slice(10,12)} · <a href="${x.url}" target="_blank" rel="noopener">${x.title}</a></div>`)].join('');
-    const llm=it.llm?`<div class="ev" style="margin:6px 0 2px;color:${it.llm.verdict=='호재'?'var(--up)':it.llm.verdict=='악재'?'var(--dn)':'var(--mut)'}">뉴스 판독 ${it.llm.verdict}${it.llm.event&&it.llm.event!='없음'?' · '+it.llm.event:''} · ${it.llm.note}</div>`:'';
+    const llm=it.llm?`<div class="ev" style="margin:6px 0 2px;color:${it.llm.verdict=='호재'?'var(--up)':it.llm.verdict=='악재'?'var(--dn)':'var(--mut)'}">뉴스 판정 ${it.llm.verdict}${it.llm.event&&it.llm.event!='없음'?' · '+it.llm.event:''} · ${it.llm.note}</div>`:'';
     return `<div class="card" onclick="this.classList.toggle('open')">
       <div class="row"><span class="rank">${i+1}</span><span class="name">${it.name}<small>${it.market} ${it.code}</small>${it.halted?'<span class="halt">거래정지</span>':''}${it.pref?'<span class="halt" style="background:#2b2f3a;color:#aab">우선주</span>':''}${it.alert?`<span class="halt">${['','투자주의','투자경고','투자위험'][it.alert]}</span>`:''}${it.managed?'<span class="halt">관리종목</span>':''}</span><span class="p" style="color:${color}">${pf(it.p)}</span></div>
-      <div class="meta"><span>${it.close.toLocaleString()}원</span><span class="${cls(it.ret1)}">전일 ${sgn(it.ret1)}</span>${it.mcap?`<span>시총 ${won(it.mcap)}</span>`:''}${it.val!=null?`<span>거래대금 ${won(it.val)}</span>`:''}${it.over_ret!=null?`<span class="${cls(it.over_ret)}">밤사이 ${sgn(it.over_ret)}</span>`:''}<span>${conf}</span></div>
+      <div class="meta"><span>${it.close.toLocaleString()}원</span><span class="${cls(it.ret1)}">전일 ${sgn(it.ret1)}</span>${it.mcap?`<span>시총 ${won(it.mcap)}</span>`:''}${it.val!=null?`<span>거래대금 ${won(it.val)}</span>`:''}${it.over_ret!=null?`<span class="${cls(it.over_ret)}">시간외 ${sgn(it.over_ret)}</span>`:''}<span>${conf}</span></div>
       ${llm}<div class="bar"><i style="width:${Math.min(100,it.p*100*2)}%;background:${color}"></i></div>
       <div class="det">${candle(it)}${flowsSvg(it.chart)}${modelLine(it)}${groupLine(it.groups)}<ul class="rs">${rs}</ul>${anGrid(it.analysis)}<div class="ev">${ev||'<div>공시·뉴스 없음</div>'}</div></div>
     </div>`;}).join('');
@@ -216,7 +216,7 @@ function flowsSvg(c){
 }
 function modelLine(it){
   const parts=[];
-  if(it.hist_rate!=null) parts.push(`같은 확률 구간 ${it.hist_n.toLocaleString()}건: 상한가 마감 ${pf(it.hist_rate)}`);
+  if(it.hist_rate!=null) parts.push(`동일 확률 구간 ${it.hist_n.toLocaleString()}건 · 상한가 마감 ${pf(it.hist_rate)}`);
   if(it.hist_oc!=null) parts.push(`시가 매수 평균 <b class="${cls(it.hist_oc)}">${sgn(it.hist_oc)}</b>`);
   if(it.hist_oc_win!=null) parts.push(`상승 마감 ${f(it.hist_oc_win,0)}`);
   if(it.hist_unb!=null) parts.push(`시가 상한가 ${f(it.hist_unb,0)}`);
@@ -248,7 +248,7 @@ function liveSvg(h){
   let cum=0, cumn=0, eq=1; const rate=[], eqs=[];
   h.forEach(x=>{cum+=x.up_hits; cumn+=Math.min(5,(x.up||[]).length)||5; rate.push(cum/cumn); const oc=x.up_mean_oc; if(oc!=null) eq*=1+oc-0.003; eqs.push(eq);});
   const emax=Math.max(...eqs,1.0001), emin=Math.min(...eqs,1);
-  let s=svgOpen(W,H)+`<text x="${pad.l}" y="16" fill="#8b919c" font-size="13">실전 누적 적중률(빨강, 왼쪽) · 시가 매수 누적 수익(노랑, 오른쪽)</text>`;
+  let s=svgOpen(W,H)+`<text x="${pad.l}" y="16" fill="#8b919c" font-size="13">실전 누적 적중률(적색, 좌축) · 시가 매수 누적 수익(황색, 우축)</text>`;
   [0.25,0.5].forEach(v=>{const yy=pad.t+ph*(1-v); s+=`<line x1="${pad.l}" x2="${W-pad.r}" y1="${yy}" y2="${yy}" stroke="#262a33"/><text x="${pad.l+2}" y="${yy-3}" fill="#ff4d4d" font-size="11" opacity=".8">${v*100}%</text>`;});
   h.forEach((x,i)=>{const bh=ph*Math.min(1,x.up_hits/5); s+=`<rect x="${pad.l+xw*i+xw*.2}" y="${pad.t+ph-bh}" width="${xw*.6}" height="${bh}" fill="#ff4d4d" opacity=".35"/>`;});
   s+=`<polyline fill="none" stroke="#ff4d4d" stroke-width="2" points="${rate.map((r,i)=>`${pad.l+xw*(i+.5)},${pad.t+ph*(1-Math.min(1,r))}`).join(' ')}"/>`;
@@ -258,23 +258,23 @@ function liveSvg(h){
   return s+'</svg>';
 }
 function perfSvg(pf){
-  const info=`<div class="ev" style="margin-bottom:10px">매일 재학습 기록. 학습 데이터·검증 적중률·실전 적중률 추이.</div>`;
-  if(pf.length<2) return info+`<table><tr><th>학습 기준일</th><th>학습 데이터</th><th>변수</th><th>검증 상위5 적중률</th><th>AP</th><th>AUC</th><th>시가 매수 평균</th></tr>${pf.map(x=>`<tr><td>${x.as_of}</td><td>${(x.train_rows||0).toLocaleString()}행</td><td>${x.n_features}</td><td>${f(x['p@5']||0,1)}</td><td>${(x.ap||0).toFixed(3)}</td><td>${(x.auc||0).toFixed(3)}</td><td class="${cls(x['oc@5'])}">${x['oc@5']==null?'':sgn(x['oc@5'])}</td></tr>`).join('')}</table><div class="ev" style="margin-top:8px">학습 2회 이상부터 그래프 표시.</div>`;
+  const info=`<div class="ev" style="margin-bottom:10px">일별 재학습 기록: 학습 데이터, 검증 적중률, 실전 적중률</div>`;
+  if(pf.length<2) return info+`<table><tr><th>학습 기준일</th><th>학습 데이터</th><th>변수</th><th>검증 상위5 적중률</th><th>AP</th><th>AUC</th><th>시가 매수 평균</th></tr>${pf.map(x=>`<tr><td>${x.as_of}</td><td>${(x.train_rows||0).toLocaleString()}행</td><td>${x.n_features}</td><td>${f(x['p@5']||0,1)}</td><td>${(x.ap||0).toFixed(3)}</td><td>${(x.auc||0).toFixed(3)}</td><td class="${cls(x['oc@5'])}">${x['oc@5']==null?'':sgn(x['oc@5'])}</td></tr>`).join('')}</table><div class="ev" style="margin-top:8px">학습 2회 이상 시 그래프 표시</div>`;
   const W=760,H=200,pad={l:8,r:70,t:28,b:26}, n=pf.length, xw=(W-pad.l-pad.r)/Math.max(1,n-1), ph=H-pad.t-pad.b;
   const p5=pf.map(x=>x['p@5']||0), lv=pf.map(x=>x.live_rate), top=Math.max(0.5,...p5,...lv.filter(x=>x!=null));
-  let s=svgOpen(W,H)+`<text x="${pad.l}" y="16" fill="#8b919c" font-size="13">검증 상위5 적중률(빨강) · 실전 누적 적중률(노랑)</text>`;
+  let s=svgOpen(W,H)+`<text x="${pad.l}" y="16" fill="#8b919c" font-size="13">검증 상위5 적중률(적색) · 실전 누적 적중률(황색)</text>`;
   [0.25,0.5].forEach(v=>{if(v<=top){const yy=pad.t+ph*(1-v/top); s+=`<line x1="${pad.l}" x2="${W-pad.r}" y1="${yy}" y2="${yy}" stroke="#262a33"/><text x="${W-pad.r+6}" y="${yy+4}" fill="#8b919c" font-size="12">${v*100}%</text>`;}});
   s+=`<polyline fill="none" stroke="#ff4d4d" stroke-width="2" points="${p5.map((r,i)=>`${pad.l+xw*i},${pad.t+ph*(1-r/top)}`).join(' ')}"/>`;
   const lp=lv.map((r,i)=>r==null?null:`${pad.l+xw*i},${pad.t+ph*(1-r/top)}`).filter(Boolean); if(lp.length>1) s+=`<polyline fill="none" stroke="#e0b64d" stroke-width="2" points="${lp.join(' ')}"/>`;
   [0,n-1].forEach(i=>{const d=pf[i].as_of; s+=`<text x="${pad.l+xw*i}" y="${H-8}" fill="#8b919c" font-size="12" text-anchor="${i?'end':'start'}">${d.slice(4,6)}.${d.slice(6)}</text>`;});
   const last=pf[n-1], first=pf[0];
-  return info+s+'</svg>'+`<div class="ev">학습 데이터 ${(last.train_rows||0).toLocaleString()}행(처음 ${(first.train_rows||0).toLocaleString()}행) · 변수 ${last.n_features}개 · 검증 적중률 ${f(last['p@5']||0,1)}(처음 ${f(first['p@5']||0,1)})</div>`;
+  return info+s+'</svg>'+`<div class="ev">학습 데이터 ${(last.train_rows||0).toLocaleString()}행(최초 ${(first.train_rows||0).toLocaleString()}행) · 변수 ${last.n_features}개 · 검증 적중률 ${f(last['p@5']||0,1)}(최초 ${f(first['p@5']||0,1)})</div>`;
 }
 function stats(d){
   const su=d.stats.y_up, g=document.getElementById('stat');
   const kv=(b,s)=>`<div class="kv"><b>${b}</b><span>${s}</span></div>`;
-  g.innerHTML=kv(f(su['p@5'],0),'상위5 적중률')+kv(su['hits@5'].toFixed(2),'하루 적중 수')+kv(f(su.base_rate,2),'기준율')+kv((su['p@5']/su.base_rate).toFixed(0)+'배','기준율 대비')
-    +(su['open_to_close@5']!=null?kv(`<span class="${cls(su['oc_mean_ex_unbuyable@5'])}">${sgn(su['oc_mean_ex_unbuyable@5'])}</span>`,'시가 매수 평균 수익')+kv(sgn(su['open_gap@5']),'평균 시가 갭')+kv(f(su['unbuyable@5'],0),'시가 상한가 비율')+kv(f(su['oc_win@5'],0),'시가 매수 상승 마감'):'')
+  g.innerHTML=kv(f(su['p@5'],0),'상위5 적중률')+kv(su['hits@5'].toFixed(2),'일평균 적중 수')+kv(f(su.base_rate,2),'기준율')+kv((su['p@5']/su.base_rate).toFixed(0)+'배','기준율 대비')
+    +(su['open_to_close@5']!=null?kv(`<span class="${cls(su['oc_mean_ex_unbuyable@5'])}">${sgn(su['oc_mean_ex_unbuyable@5'])}</span>`,'시가 매수 평균 수익')+kv(sgn(su['open_gap@5']),'평균 시가 갭')+kv(f(su['unbuyable@5'],0),'시가 상한가 비율')+kv(f(su['oc_win@5'],0),'시가 매수 상승 마감 비율'):'')
 ;
   const bt=(s)=>`<table><tr><th>모델 확률</th><th>건수</th><th>적중률</th></tr>${s.buckets.map(b=>`<tr><td>${pf(b.lo)} ~ ${pf(Math.min(b.hi,1))}</td><td>${b.n.toLocaleString()}</td><td>${pf(b.rate)}</td></tr>`).join('')}</table>
     <table><tr><th>월</th><th>거래일</th><th>상한가 발생</th><th>상위5 적중률</th><th>시가 갭</th><th>시가 매수 수익</th></tr>${s.monthly.map(m=>`<tr><td>${m.ym.slice(0,4)}.${m.ym.slice(4)}</td><td>${m.days}</td><td>${m.pos}</td><td>${f(m['p@5'],0)}</td><td class="${cls(m['gap@5'])}">${m['gap@5']==null?'':sgn(m['gap@5'])}</td><td class="${cls(m['oc@5'])}">${m['oc@5']==null?'':sgn(m['oc@5'])}</td></tr>`).join('')}</table>`;
@@ -286,7 +286,7 @@ function stats(d){
   document.getElementById('h-perf').innerHTML=perfSvg(d.perf||[]);
   const hall=(d.history||[]).filter(x=>x.graded);
   const h=hall.slice(-20).reverse();
-  document.getElementById('h-rec').innerHTML=liveSvg(hall)+(h.length?`<table><tr><th>날짜</th><th>상한가 발생</th><th>상위5 적중</th><th>장중 터치</th><th>평균 등락</th><th>시가 매수 수익</th><th>후보 결과</th></tr>${h.map(x=>`<tr><td>${x.target_date.slice(4,6)}.${x.target_date.slice(6)}</td><td>${x.actual_up_count}</td><td class="${x.up_hits?'hit':''}">${x.up_hits}</td><td>${x.up_touch}</td><td class="${cls(x.up_mean_ret)}">${x.up_mean_ret==null?'':sgn(x.up_mean_ret)}</td><td class="${cls(x.up_mean_oc)}">${x.up_mean_oc==null?'':sgn(x.up_mean_oc)}</td><td style="white-space:normal;text-align:left">${x.up.map(u=>`<span class="${u.hit?'hit':''}">${u.name} ${u.ret==null?'':sgn(u.ret)}</span>`).join(' · ')}</td></tr>`).join('')}</table>`:'<div class="ev">채점 기록 없음 · 다음 거래일부터 표시</div>');
+  document.getElementById('h-rec').innerHTML=liveSvg(hall)+(h.length?`<table><tr><th>날짜</th><th>상한가 발생</th><th>상위5 적중</th><th>장중 도달</th><th>평균 등락</th><th>시가 매수 수익</th><th>후보 결과</th></tr>${h.map(x=>`<tr><td>${x.target_date.slice(4,6)}.${x.target_date.slice(6)}</td><td>${x.actual_up_count}</td><td class="${x.up_hits?'hit':''}">${x.up_hits}</td><td>${x.up_touch}</td><td class="${cls(x.up_mean_ret)}">${x.up_mean_ret==null?'':sgn(x.up_mean_ret)}</td><td class="${cls(x.up_mean_oc)}">${x.up_mean_oc==null?'':sgn(x.up_mean_oc)}</td><td style="white-space:normal;text-align:left">${x.up.map(u=>`<span class="${u.hit?'hit':''}">${u.name} ${u.ret==null?'':sgn(u.ret)}</span>`).join(' · ')}</td></tr>`).join('')}</table>`:'<div class="ev">채점 기록 없음 · 익영업일 표시</div>');
   document.querySelectorAll('.stats .tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.stats .tabs button').forEach(x=>x.classList.remove('on'));b.classList.add('on');document.querySelectorAll('.hist').forEach(x=>x.classList.remove('on'));document.getElementById(b.dataset.t).classList.add('on');});
 }
 main().catch(e=>{document.getElementById('sub').textContent='데이터 없음';});
