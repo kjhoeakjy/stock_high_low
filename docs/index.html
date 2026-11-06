@@ -121,7 +121,7 @@ const f=(v,d=1)=>(v*100).toFixed(d)+'%';
 const sgn=v=>(v>0?'+':'')+(v*100).toFixed(2)+'%';
 const won=v=>v>=1e12?(v/1e12).toFixed(1)+'조':Math.round(v/1e8).toLocaleString()+'억';
 const cls=v=>v>0?'pos':v<0?'neg':'';
-let DATA=null, MODE='all', VIEW='morning', LIVE_T=null;
+let DATA=null, MODE='all', VIEW='morning', LIVE_T=null, LIVE=null;
 const LIVE_URL='https://raw.githubusercontent.com/kjhoeakjy/stock_high_low/live/live.json';
 function setView(v,btn){VIEW=v;btn.parentNode.querySelectorAll('button').forEach(x=>x.classList.remove('on'));btn.classList.add('on');
   document.getElementById('view-morning').style.display=v==='morning'?'':'none';document.getElementById('view-live').style.display=v==='live'?'':'none';
@@ -129,9 +129,10 @@ function setView(v,btn){VIEW=v;btn.parentNode.querySelectorAll('button').forEach
   if(v==='live'){loadLive();if(!LIVE_T)LIVE_T=setInterval(()=>{if(VIEW==='live')loadLive();},20000);}}
 async function loadLive(){
   let d;try{const r=await fetch(LIVE_URL+'?t='+Date.now(),{cache:'no-store'});if(!r.ok)throw new Error(r.status);d=await r.json();}
-  catch(e){document.getElementById('livesub').textContent='장중 데이터 없음 · 거래일 09:00 이후 5분 간격 갱신';return;}
+  catch(e){document.getElementById('livesub').textContent='장중 데이터 없음 · 거래일 09:00 이후 갱신';return;}
+  LIVE=d; renderRec();
   const fmtd=s=>`${s.slice(0,4)}.${s.slice(4,6)}.${s.slice(6,8)}`;
-  document.getElementById('livesub').textContent=`${d.at} · 5분 갱신${d.closed?' · 장 마감':''}${d.target_date&&d.date!==d.target_date?' · 장전 후보 '+fmtd(d.target_date)+' 기준':''}`;
+  document.getElementById('livesub').textContent=`${d.at} · 30초 갱신${d.closed?' · 장 마감':''}${d.target_date&&d.date!==d.target_date?' · 장전 후보 '+fmtd(d.target_date)+' 기준':''}`;
   const mk=document.getElementById('livemk');mk.innerHTML='';
   if(d.market.KOSPI)mk.insertAdjacentHTML('beforeend',`<div><b>코스피</b><span class="${cls(d.market.KOSPI.r1)}">${sgn(d.market.KOSPI.r1)}</span></div>`);
   if(d.market.KOSDAQ)mk.insertAdjacentHTML('beforeend',`<div><b>코스닥</b><span class="${cls(d.market.KOSDAQ.r1)}">${sgn(d.market.KOSDAQ.r1)}</span></div>`);
@@ -163,6 +164,7 @@ async function main(){
   document.getElementById('upsub').textContent=`예상 상한가 수 ${d.expected_up.toFixed(1)}`;
   document.getElementById('rankline').textContent=(d.up[0]&&d.up[0].p_oc!=null)?'순위는 시가 매수→종가 +10% 모델 점수 기준. ':'';
   render('up',d.up,'var(--up)');
+  loadLive();
   stats(d);
 }
 function render(id,items,color){
@@ -290,10 +292,26 @@ function stats(d){
   document.getElementById('perfsub').textContent=`매일 재학습 · 학습 데이터 ${(d.train_rows||0).toLocaleString()}행(${(d.train_from||'').slice(0,4)}년 이후) · 변수 ${d.n_features} · 검증 ${su.days}거래일 워크포워드`;
   document.getElementById('monthly').innerHTML=monthlySvg(su.monthly||[]);
   document.getElementById('h-perf').innerHTML=perfSvg(d.perf||[]);
-  const hall=(d.history||[]).filter(x=>x.graded);
-  const h=hall.slice(-20).reverse();
-  document.getElementById('h-rec').innerHTML=liveSvg(hall)+(h.length?`<table><tr><th>날짜</th><th>상한가 발생</th><th>상위5 적중</th><th>+10% 이상</th><th>장중 도달</th><th>평균 등락</th><th>시가 매수 수익</th><th>후보 결과</th></tr>${h.map(x=>`<tr><td>${x.target_date.slice(4,6)}.${x.target_date.slice(6)}</td><td>${x.actual_up_count}</td><td class="${x.up_hits?'hit':''}">${x.up_hits}</td><td>${x.up_10!=null?x.up_10:'-'}</td><td>${x.up_touch}</td><td class="${cls(x.up_mean_ret)}">${x.up_mean_ret==null?'':sgn(x.up_mean_ret)}</td><td class="${cls(x.up_mean_oc)}">${x.up_mean_oc==null?'':sgn(x.up_mean_oc)}</td><td style="white-space:normal;text-align:left">${x.up.map(u=>`<span class="${u.hit?'hit':''}">${u.name} ${u.ret==null?'':sgn(u.ret)}</span>`).join(' · ')}</td></tr>`).join('')}</table>`:'<div class="ev">채점 기록 없음 · 익영업일 표시</div>');
+  renderRec();
   document.querySelectorAll('.stats .tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.stats .tabs button').forEach(x=>x.classList.remove('on'));b.classList.add('on');document.querySelectorAll('.hist').forEach(x=>x.classList.remove('on'));document.getElementById(b.dataset.t).classList.add('on');});
+}
+function provisionalRow(){
+  // 당일 결과 잠정 행: 장중 시세 기준(정식 채점은 익영업일 아침)
+  if(!DATA||!LIVE||LIVE.date!==DATA.target_date) return null;
+  const m=(LIVE.morning||[]).filter(x=>x.morning_rank&&x.morning_rank<=5);
+  if(!m.length) return null;
+  const buy=m.filter(x=>x.o_ret!=null&&(x.gap==null||x.gap<0.295));
+  return {target_date:LIVE.date, provisional:true, actual_up_count:LIVE.n_limit, up_hits:m.filter(x=>x.status=='상한가').length,
+    up_10:m.filter(x=>x.ret>=0.10).length, up_touch:m.filter(x=>x.status=='상한가'||x.status=='도달 후 이탈').length,
+    up_mean_ret:m.reduce((a,x)=>a+x.ret,0)/m.length, up_mean_oc:buy.length?buy.reduce((a,x)=>a+x.o_ret,0)/buy.length:null,
+    up:m.map(x=>({name:x.name,ret:x.ret,hit:x.status=='상한가'}))};
+}
+function renderRec(){
+  const d=DATA; if(!d) return;
+  const hall=(d.history||[]).filter(x=>x.graded);
+  const pr=provisionalRow();
+  const h=hall.slice(-20).reverse(); if(pr&&!hall.some(x=>x.target_date===pr.target_date)) h.unshift(pr);
+  document.getElementById('h-rec').innerHTML=liveSvg(hall)+(h.length?`<table><tr><th>날짜</th><th>상한가 발생</th><th>상위5 적중</th><th>+10% 이상</th><th>장중 도달</th><th>평균 등락</th><th>시가 매수 수익</th><th>후보 결과</th></tr>${h.map(x=>`<tr><td>${x.target_date.slice(4,6)}.${x.target_date.slice(6)}${x.provisional?'<br><small style="color:var(--mut)">잠정</small>':''}</td><td>${x.actual_up_count}</td><td class="${x.up_hits?'hit':''}">${x.up_hits}</td><td>${x.up_10!=null?x.up_10:'-'}</td><td>${x.up_touch}</td><td class="${cls(x.up_mean_ret)}">${x.up_mean_ret==null?'':sgn(x.up_mean_ret)}</td><td class="${cls(x.up_mean_oc)}">${x.up_mean_oc==null?'':sgn(x.up_mean_oc)}</td><td style="white-space:normal;text-align:left">${x.up.map(u=>`<span class="${u.hit?'hit':''}">${u.name} ${u.ret==null?'':sgn(u.ret)}</span>`).join(' · ')}</td></tr>`).join('')}</table>`:'<div class="ev">채점 기록 없음 · 익영업일 표시</div>');
 }
 main().catch(e=>{document.getElementById('sub').textContent='데이터 없음';});
 try{const v=localStorage.getItem('view');if(v==='live'){setView('live',document.querySelectorAll('#toptabs button')[1]);}}catch(e){}
