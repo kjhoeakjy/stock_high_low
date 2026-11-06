@@ -2,28 +2,11 @@ name: 접속 점검
 on:
   workflow_dispatch:
   push:
-    paths: [.github/workflows/probe.yml]
+    paths: [.github/workflows/probe.yml, stock/tools/probe.sh]
 jobs:
   probe:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: 묶음 시세 점검
-        run: |
-          H1='User-Agent: Mozilla/5.0'; H2='Referer: https://m.stock.naver.com/'
-          codes=$(curl -s -H "$H1" -H "$H2" "https://m.stock.naver.com/api/stocks/marketValue/KOSDAQ?page=1&pageSize=100" | python3 -c "import sys,json;print(','.join(x['itemCode'] for x in json.load(sys.stdin)['stocks']))")
-          c100=$codes; c20=$(echo $codes | cut -d, -f1-20)
-          echo "=== realtime/domestic/stock (20, 100)"
-          for c in "$c20" "$c100"; do curl -s -H "$H1" "https://polling.finance.naver.com/api/realtime/domestic/stock/$c" -o /tmp/b -w "%{http_code} %{size_download}\n"; python3 -c "
-import json;d=json.load(open('/tmp/b'));ds=d.get('datas') or d.get('result',{}).get('areas',[{}])[0].get('datas',[]);print('n=',len(ds));print(json.dumps(ds[0],ensure_ascii=False)[:900]) if ds else print(open('/tmp/b').read()[:300])" || head -c 300 /tmp/b; done
-          echo "=== realtime?query encoded pipe (20)"
-          q=$(echo $c20 | tr ',' '\n' | sed 's/^/SERVICE_ITEM:/' | paste -sd'|' | sed 's/|/%7C/g')
-          curl -s -H "$H1" "https://polling.finance.naver.com/api/realtime?query=$q" -o /tmp/b -w "%{http_code}\n"; python3 -c "
-import json;d=json.load(open('/tmp/b'));print('n=',len(d['result']['areas'][0]['datas']))" || head -c 300 /tmp/b
-          echo "=== NXT polling many"
-          curl -s -H "$H1" -H "$H2" "https://stock.naver.com/api/polling/domestic/NXT/stock?itemCodes=$c100" -o /tmp/b -w "%{http_code} %{size_download}\n"; python3 -c "
-import json;d=json.load(open('/tmp/b'));print('n=',len(d['datas']));print(json.dumps(d['datas'][0],ensure_ascii=False)[:1200])" || head -c 300 /tmp/b
-          echo "=== up list sample"
-          curl -s -H "$H1" -H "$H2" "https://m.stock.naver.com/api/stocks/up/KOSDAQ?page=1&pageSize=2" | python3 -c "import sys,json;d=json.load(sys.stdin);print(json.dumps(d['stocks'][0],ensure_ascii=False)[:1500])"
-          echo "=== KRX index realtime"
-          curl -s -H "$H1" -H "$H2" "https://m.stock.naver.com/api/index/KOSDAQ/basic" | head -c 400; echo
+      - uses: actions/checkout@v4
+      - run: bash stock/tools/probe.sh
