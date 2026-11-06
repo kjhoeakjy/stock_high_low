@@ -77,6 +77,13 @@ CONFIGS = {
     "oc10_hl12": {"target": "oc10", "hard_neg": 3.0, "half_life": 12},
     "oc10_hl24": {"target": "oc10", "hard_neg": 3.0, "half_life": 24},
     "oc10_rules": {"target": "oc10", "hard_neg": 3.0, "rules": True},   # 예측 후 규칙 필터(경고 지정 3일 초과·소형주 거래량 충격 등)
+    # 4차: 3차에서 우세한 요소 결합(다중 시드 +0.4%p, 반감기 24개월 +0.3%p, 순위 학습 앙상블 +0.2%p)
+    "oc10_s2_hl24": {"target": "oc10", "hard_neg": 3.0, "n_seeds": 2, "half_life": 24},
+    "oc10_s3_hl24": {"target": "oc10", "hard_neg": 3.0, "n_seeds": 3, "half_life": 24},
+    "oc10_s5": {"target": "oc10", "hard_neg": 3.0, "n_seeds": 5},
+    "oc10_s3_hl24_rank": {"target": "oc10", "hard_neg": 3.0, "half_life": 24,
+                          "ens": [{}, {"seed_off": 1}, {"seed_off": 2}, {"target": "oc_grade", "objective": "lambdarank", "pos_min": 2}]},
+    "oc10_s3_hl36": {"target": "oc10", "hard_neg": 3.0, "n_seeds": 3, "half_life": 36},
 }
 
 
