@@ -82,6 +82,7 @@ td:first-child,th:first-child{text-align:left}
 #lock button{font-size:20px;padding:12px;border-radius:12px;border:0;background:#3b4252;color:var(--fg);cursor:pointer}
 #lock label{color:var(--mut);font-size:16px}
 #lock .err{color:var(--up);font-size:16px;min-height:22px}
+tr.ex td{opacity:.5}
 </style>
 </head>
 <body>
@@ -145,13 +146,14 @@ async function loadLive(){
   if(d.market.KOSPI)mk.insertAdjacentHTML('beforeend',`<div><b>코스피</b><span class="${cls(d.market.KOSPI.r1)}">${sgn(d.market.KOSPI.r1)}</span></div>`);
   if(d.market.KOSDAQ)mk.insertAdjacentHTML('beforeend',`<div><b>코스닥</b><span class="${cls(d.market.KOSDAQ.r1)}">${sgn(d.market.KOSDAQ.r1)}</span></div>`);
   mk.insertAdjacentHTML('beforeend',`<div><b>상한가</b>${d.n_limit}</div><div><b>10%↑</b>${d.n_up10}</div>${d.up_ratio!=null?`<div><b>상승 비율</b>${Math.round(d.up_ratio*100)}%</div>`:''}`);
-  const st=x=>`<span class="st ${x.status=='상한가'?'lim':''}">${x.status}</span>${x.gap!=null&&x.gap>=0.295?'<br><small style="color:var(--mut)">시가 상한가 · 매수 불가</small>':''}`;
+  const st=x=>`<span class="st ${x.status=='상한가'?'lim':''}">${x.status}</span>${x.gap!=null&&x.gap>=0.295?'<br><small style="color:var(--mut)">시가 상한가 · 매수 불가 · 제외</small>':''}`;
   const TR=(LIVE&&LIVE.trades&&LIVE.trades.items)||{};
   const tcell=x=>{const t=TR[x.code];if(!t)return '<td>-</td><td>-</td>';if(t.skip)return `<td>-</td><td><small style="color:var(--mut)">${t.skip}</small></td>`;const v=t.net!=null?t.net:t.now;return `<td>${t.entry.toLocaleString()}</td><td class="${cls(v)}">${v==null?'-':sgn(v)}${t.net!=null?'<br><small style="color:var(--mut)">청산 '+t.exit.toLocaleString()+'</small>':''}</td>`;};
-  const row=(x,i,withRank)=>`<tr><td class="l">${withRank?`<span class="rank">${x.morning_rank||i+1}</span>`:''}<b>${x.name}</b>${x.pref?' <small style="color:var(--mut)">우선주</small>':''}</td><td>${x.p!=null?pf(x.p):'-'}</td><td>${x.price.toLocaleString()}</td><td class="big ${cls(x.ret)}">${sgn(x.ret)}</td><td class="${cls(x.o_ret)}">${x.o_ret==null?'-':sgn(x.o_ret)}</td>${withRank?tcell(x):''}<td>${x.hi_ret==null?'-':sgn(x.hi_ret)}</td><td>${x.status=='상한가'?'도달':f(x.to_limit,1)}</td><td>${x.val!=null?won(x.val):'-'}</td><td>${st(x)}</td></tr>`;
+  const row=(x,i,withRank)=>`<tr${withRank&&x.gap!=null&&x.gap>=0.295?' class="ex"':''}><td class="l">${withRank?`<span class="rank">${x.morning_rank||i+1}</span>`:''}<b>${x.name}</b>${x.pref?' <small style="color:var(--mut)">우선주</small>':''}</td><td>${x.p!=null?pf(x.p):'-'}</td><td>${x.price.toLocaleString()}</td><td class="big ${cls(x.ret)}">${sgn(x.ret)}</td><td class="${cls(x.o_ret)}">${x.o_ret==null?'-':sgn(x.o_ret)}</td>${withRank?tcell(x):''}<td>${x.hi_ret==null?'-':sgn(x.hi_ret)}</td><td>${x.status=='상한가'?'도달':f(x.to_limit,1)}</td><td>${x.val!=null?won(x.val):'-'}</td><td>${st(x)}</td></tr>`;
   const head=w=>`<tr><th class="l">종목</th><th>장전 확률</th><th>현재가</th><th>등락률</th><th>시가 대비</th>${w?'<th>진입가 09:05</th><th>진입 대비</th>':''}<th>고가</th><th>상한가 괴리</th><th>거래대금</th><th>상태</th></tr>`;
   const tbl=(rows,withRank)=>rows.length?`<table class="lv">${head(withRank)}${rows.map((x,i)=>row(x,i,withRank)).join('')}</table>`:'<div class="ev" style="margin-bottom:18px">없음</div>';
-  const mrows=(MODE==='common'?d.morning.filter(x=>!x.pref):MODE==='liquid'?d.morning.filter(x=>!x.pref&&x.val!=null):d.morning).slice(0,5);
+  const locked=x=>x.gap!=null&&x.gap>=0.295;
+  const mrows=(MODE==='common'?d.morning.filter(x=>!x.pref):MODE==='liquid'?d.morning.filter(x=>!x.pref&&x.val!=null):d.morning).slice(0,5).sort((a,b)=>locked(a)-locked(b));
   document.getElementById('live-morning').innerHTML=tbl(mrows,true);
   const nl=mrows.filter(x=>x.status=='상한가').length, nt=mrows.filter(x=>x.status=='도달 후 이탈').length, mr=mrows.length?mrows.reduce((a,x)=>a+x.ret,0)/mrows.length:null, mo=mrows.filter(x=>x.o_ret!=null), moc=mo.length?mo.reduce((a,x)=>a+x.o_ret,0)/mo.length:null;
   const tl=d.trades||null, tline=tl&&tl.n_entered?(tl.net_day!=null?` · <b>09:05 진입·15:15 청산 순수익 <span class="${cls(tl.net_day)}">${sgn(tl.net_day)}</span></b>(${tl.n_entered}종목, 비용 차감)`:` · 진입 대비 <b class="${cls(tl.open_day)}">${sgn(tl.open_day)}</b>(${tl.n_entered}종목 09:05 진입)`):'';
