@@ -1,0 +1,31 @@
+name: 접속 점검
+on:
+  workflow_dispatch:
+  push:
+    paths: [.github/workflows/probe.yml]
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: CORS·응답 점검
+        run: |
+          for u in \
+            "https://polling.finance.naver.com/api/realtime?query=SERVICE_ITEM:005930|SERVICE_ITEM:000660" \
+            "https://polling.finance.naver.com/api/realtime/domestic/stock/005930,000660" \
+            "https://m.stock.naver.com/api/stocks/up/KOSDAQ?page=1&pageSize=5" \
+            "https://m.stock.naver.com/api/stock/005930/basic" \
+            "https://api.stock.naver.com/stock/005930/basic" \
+            "https://stock.naver.com/api/polling/domestic/NXT/stock?itemCodes=005930" \
+            "https://finance.naver.com/sise/sise_rise.naver?sosok=1" ; do
+            echo "=== $u"
+            curl -s -o /tmp/body -D - -H "Origin: https://kjhoeakjy.github.io" -H "Referer: https://m.stock.naver.com/" -A "Mozilla/5.0" "$u" | grep -i -E "^HTTP|access-control|content-type" || true
+            head -c 300 /tmp/body | iconv -f euc-kr -t utf-8 2>/dev/null || head -c 300 /tmp/body; echo
+          done
+          echo "=== batch size test"
+          codes=$(curl -s -A "Mozilla/5.0" -H "Referer: https://m.stock.naver.com/" "https://m.stock.naver.com/api/stocks/marketValue/KOSDAQ?page=1&pageSize=100" | python3 -c "import sys,json;print('|'.join('SERVICE_ITEM:'+x['itemCode'] for x in json.load(sys.stdin)['stocks']))")
+          for n in 20 40 60 100; do
+            q=$(echo "$codes" | tr '|' '\n' | head -$n | paste -sd'|')
+            cnt=$(curl -s -A "Mozilla/5.0" "https://polling.finance.naver.com/api/realtime?query=$q" | python3 -c "import sys,json;d=json.load(sys.stdin);print(len(d['result']['areas'][0]['datas']))" 2>/dev/null || echo ERR)
+            echo "n=$n -> $cnt"
+          done
