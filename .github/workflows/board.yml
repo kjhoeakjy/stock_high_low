@@ -1,0 +1,81 @@
+name: 토론방 과거 수집
+run-name: "토론방 과거 수집 ${{ inputs.days }}일 / ${{ inputs.shards }}분할"
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "며칠 전까지"
+        default: "400"
+      shards:
+        description: "분할 수"
+        default: "6"
+      max_pages:
+        description: "종목당 최대 페이지(100글)"
+        default: "80"
+permissions:
+  contents: write
+concurrency:
+  group: stock-board
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+    steps:
+      - id: m
+        run: echo "matrix=$(python3 -c "import json;n=int('${{ inputs.shards }}');print(json.dumps([f'{i}/{n}' for i in range(n)]))")" >> $GITHUB_OUTPUT
+  collect:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    env:
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q pandas pyarrow
+      - name: 종목 목록
+        run: |
+          git fetch -q --depth=1 origin stock-data
+          mkdir -p stock/data
+          git --work-tree=stock/data checkout -q FETCH_HEAD -- universe.json
+          git reset -q
+      - name: 수집
+        run: python -m stock.collect_board --backfill --shard=${{ matrix.shard }} --days=${{ inputs.days }} --max-pages=${{ inputs.max_pages }} --out=/tmp/board
+      - uses: actions/upload-artifact@v4
+        with:
+          name: board-${{ strategy.job-index }}
+          path: /tmp/board
+          retention-days: 3
+  merge:
+    needs: collect
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q pandas pyarrow
+      - uses: actions/download-artifact@v4
+        with:
+          path: /tmp/parts
+      - name: 기존 자료
+        run: |
+          mkdir -p stock/data
+          if git fetch -q --depth=1 origin board-data 2>/dev/null; then git --work-tree=stock/data checkout -q FETCH_HEAD -- . ; git reset -q; fi
+          git fetch -q --depth=1 origin stock-data && git --work-tree=stock/data checkout -q FETCH_HEAD -- universe.json && git reset -q
+      - name: 합치기
+        run: python -m stock.collect_board --merge /tmp/parts/*
+      - name: board-data 브랜치 갱신
+        run: |
+          mkdir -p /tmp/bd && cp stock/data/board.parquet stock/data/board_state.json /tmp/bd/
+          cd /tmp/bd && git init -q -b board-data && git config user.name github-actions && git config user.email actions@github.com
+          git add -A && git commit -qm "board $(date -u +%Y%m%dT%H%M)"
+          git push -q -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" board-data
