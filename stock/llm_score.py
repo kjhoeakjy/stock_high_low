@@ -76,7 +76,7 @@ def ask(cli, batch: list[tuple[str, str, float, float, list[str]]]) -> list[dict
     prompt = f"다음 {len(batch)}개 종목을 판독하라.\n\n" + "\n\n".join(blocks)
     for i in range(3):
         try:
-            r = cli.messages.create(model=MODEL, max_tokens=3000, temperature=0, system=SYSTEM, messages=[{"role": "user", "content": prompt}])
+            r = cli.messages.create(model=MODEL, max_tokens=3000, system=SYSTEM, messages=[{"role": "user", "content": prompt}])
             text = "".join(getattr(b, "text", "") or "" for b in r.content)
             m = re.search(r"\[.*\]", text, re.S)
             arr = json.loads(m.group(0)) if m else []
