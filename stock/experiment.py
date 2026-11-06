@@ -38,6 +38,7 @@ CONFIGS = {
     "no_flow": {"drop_prefix": ("frgn", "inst", "indiv", "frate", "flow_")},
     "no_group": {"drop_prefix": ("ind_", "thm_")},
     "no_rank": {"drop_prefix": ("rk_",)},
+    "no_newfeat": {"drop_prefix": ("ret20_ex", "ret60_ex", "KOSDAQ_r60", "KOSPI_r60", "KOSDAQ_bull", "KOSPI_bull")},
     "dart": {"params": {"boosting": "dart", "drop_rate": 0.1}, "rounds": 400},
     "goss": {"params": {"boosting": "goss", "bagging_fraction": 1.0, "bagging_freq": 0}},
     "l2_1": {"params": {"lambda_l2": 1.0}},

@@ -68,6 +68,8 @@ def market_features(mk: pd.DataFrame) -> pd.DataFrame:
             d[f"{sym}_ma250"] = c / c.rolling(250, min_periods=120).mean() - 1
             d[f"{sym}_ma20"] = c / c.rolling(20).mean() - 1
             d[f"{sym}_dd"] = c / c.rolling(250, min_periods=60).max() - 1
+            d[f"{sym}_r60"] = c.pct_change(60)
+            d[f"{sym}_bull"] = (c > c.rolling(120, min_periods=60).mean()).astype("float32")  # 강세 국면 플래그
         if sym == "VIX":
             d["VIX_lvl"] = c
         out[sym] = d
@@ -124,6 +126,12 @@ def build(prices: pd.DataFrame, flows: pd.DataFrame | None, universe: list[dict]
         df[f"n_up{n}"] = _roll(df, "is_up", n, "sum", 1)
         df[f"n_touch{n}"] = _roll(df, "touch_up", n, "sum", 1)
     df["n_dn20"] = _roll(df, "is_dn", 20, "sum", 1)
+    # 상한가일을 제외한 모멘텀(Liu·Wu·Zhu 2022: 상한가일 과잉반응을 뺀 모멘텀이 유효)
+    lr = np.log1p(df["ret1"].clip(-0.99, None)).where(~up, 0.0).fillna(0.0)
+    df["_lr_ex"] = lr.astype("float64")
+    df["ret20_ex"] = np.expm1(_roll(df, "_lr_ex", 20, "sum", 1)).astype("float32")
+    df["ret60_ex"] = np.expm1(_roll(df, "_lr_ex", 60, "sum", 1)).astype("float32")
+    # 상한가 잠김 강도: 상한가일 거래량/20일 평균(낮을수록 잠김이 단단함), 상한가일 종가 위치
     df["big_up"] = (df["ret1"] >= 0.15).astype("int8")
     df["n_big5"] = _roll(df, "big_up", 5, "sum", 1)
     df["n_big20"] = _roll(df, "big_up", 20, "sum", 1)
@@ -247,7 +255,7 @@ def build(prices: pd.DataFrame, flows: pd.DataFrame | None, universe: list[dict]
     df["y_oc"] = np.where(valid, (1 + nxt) / (1 + nxt_gap) - 1, np.nan).astype("float32")  # 시가→종가
     df["next_date"] = _g(df, "date").shift(-1)
 
-    df.drop(columns=["_v"], inplace=True, errors="ignore")
+    df.drop(columns=["_v", "_lr_ex"], inplace=True, errors="ignore")
     return df
 
 
