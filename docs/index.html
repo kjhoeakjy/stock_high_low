@@ -46,6 +46,15 @@ h2{font-size:26px;margin:0 0 4px}
 .tagline{color:var(--mut);font-size:15px;margin:0 0 8px}
 .tagline span{background:var(--chip);border-radius:8px;padding:2px 8px;margin-right:6px;display:inline-block;margin-bottom:4px}
 .mdl{font-size:16px;margin:0 0 10px;color:#c8cdd6}
+.tabs.top{margin:0 0 16px}.tabs.top button{font-size:19px;padding:10px 18px}
+.lv{width:100%;border-collapse:collapse;font-size:17px;margin-bottom:22px}
+.lv th{color:var(--mut);font-weight:500;text-align:right;padding:6px 8px;border-bottom:1px solid var(--line);font-size:14px}
+.lv td{padding:9px 8px;border-bottom:1px solid var(--line);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.lv th:first-child,.lv td:first-child,.lv th.l,.lv td.l{text-align:left}
+.lv td.big{font-size:22px;font-weight:800}
+.lv .st{font-size:13px;border-radius:6px;padding:2px 7px;background:var(--chip)}
+.lv .st.lim{background:var(--up);color:#fff}
+@media(max-width:700px){.lv{font-size:15px}.lv td{padding:7px 5px}.lv td.big{font-size:19px}}
 .stats{margin-top:40px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px}
 .stats h3{margin:0 0 10px;font-size:22px}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
@@ -69,6 +78,15 @@ td:first-child,th:first-child{text-align:left}
 <div class="wrap">
   <h1 id="title">상한가 후보</h1>
   <div class="sub" id="sub">불러오는 중</div>
+  <div class="tabs top" id="toptabs"><button class="on" onclick="setView('morning',this)">오늘 아침 후보</button><button onclick="setView('live',this)">실시간</button></div>
+  <div id="view-live" style="display:none">
+    <div class="sub" id="livesub">불러오는 중</div>
+    <div class="mk" id="livemk"></div>
+    <section><h2 class="pos">아침 후보 현재 상황</h2><div class="h2sub">아침 9시 시가에 샀다고 가정한 수익은 "시가 대비" 열입니다.</div><div id="live-morning"></div></section>
+    <section><h2 class="pos">지금 상한가</h2><div id="live-limit"></div></section>
+    <section><h2>상한가 근접 (10% 이상 상승)</h2><div class="h2sub" id="lockline"></div><div id="live-near"></div></section>
+  </div>
+  <div id="view-morning">
   <div class="mk" id="mk"></div>
   <div class="tabs" style="margin:0 0 14px"><button class="on" onclick="setMode('all',this)">전체</button><button onclick="setMode('common',this)">보통주만</button><button onclick="setMode('liquid',this)">보통주 · 거래대금 10억↑</button></div>
   <section style="max-width:960px">
@@ -76,6 +94,8 @@ td:first-child,th:first-child{text-align:left}
     <div class="h2sub" id="upsub"></div>
     <div id="up"></div>
   </section>
+
+  </div>
 
   <div class="stats">
     <h3>모델 성능</h3>
@@ -99,7 +119,31 @@ const f=(v,d=1)=>(v*100).toFixed(d)+'%';
 const sgn=v=>(v>0?'+':'')+(v*100).toFixed(2)+'%';
 const won=v=>v>=1e12?(v/1e12).toFixed(1)+'조':Math.round(v/1e8).toLocaleString()+'억';
 const cls=v=>v>0?'pos':v<0?'neg':'';
-let DATA=null, MODE='all';
+let DATA=null, MODE='all', VIEW='morning', LIVE_T=null;
+const LIVE_URL='https://raw.githubusercontent.com/kjhoeakjy/stock_high_low/live/live.json';
+function setView(v,btn){VIEW=v;btn.parentNode.querySelectorAll('button').forEach(x=>x.classList.remove('on'));btn.classList.add('on');
+  document.getElementById('view-morning').style.display=v==='morning'?'':'none';document.getElementById('view-live').style.display=v==='live'?'':'none';
+  try{localStorage.setItem('view',v)}catch(e){}
+  if(v==='live'){loadLive();if(!LIVE_T)LIVE_T=setInterval(()=>{if(VIEW==='live')loadLive();},60000);}}
+async function loadLive(){
+  let d;try{const r=await fetch(LIVE_URL+'?t='+Date.now(),{cache:'no-store'});if(!r.ok)throw new Error(r.status);d=await r.json();}
+  catch(e){document.getElementById('livesub').textContent='아직 장중 데이터가 없습니다. 거래일 09:00부터 5분 간격으로 갱신됩니다.';return;}
+  const fmtd=s=>`${s.slice(0,4)}.${s.slice(4,6)}.${s.slice(6,8)}`;
+  document.getElementById('livesub').textContent=`${d.at} 기준 · 5분 간격 갱신${d.closed?' · 장 마감':''}${d.target_date&&d.date!==d.target_date?' · 아침 후보는 '+fmtd(d.target_date)+' 장 기준':''}`;
+  const mk=document.getElementById('livemk');mk.innerHTML='';
+  if(d.market.KOSPI)mk.insertAdjacentHTML('beforeend',`<div><b>코스피</b><span class="${cls(d.market.KOSPI.r1)}">${sgn(d.market.KOSPI.r1)}</span></div>`);
+  if(d.market.KOSDAQ)mk.insertAdjacentHTML('beforeend',`<div><b>코스닥</b><span class="${cls(d.market.KOSDAQ.r1)}">${sgn(d.market.KOSDAQ.r1)}</span></div>`);
+  mk.insertAdjacentHTML('beforeend',`<div><b>지금 상한가</b>${d.n_limit}개</div><div><b>10%↑</b>${d.n_up10}개</div>${d.up_ratio!=null?`<div><b>상승 종목</b>${Math.round(d.up_ratio*100)}%</div>`:''}`);
+  const st=x=>`<span class="st ${x.status=='상한가'?'lim':''}">${x.status}</span>`;
+  const row=(x,i,withRank)=>`<tr><td class="l">${withRank?`<span class="rank">${x.morning_rank||i+1}</span>`:''}<b>${x.name}</b>${x.pref?' <small style="color:var(--mut)">우선주</small>':''}</td><td>${x.p!=null?pf(x.p):'-'}</td><td>${x.price.toLocaleString()}</td><td class="big ${cls(x.ret)}">${sgn(x.ret)}</td><td class="${cls(x.o_ret)}">${x.o_ret==null?'-':sgn(x.o_ret)}</td><td>${x.hi_ret==null?'-':sgn(x.hi_ret)}</td><td>${x.status=='상한가'?'도달':f(x.to_limit,1)}</td><td>${x.val!=null?won(x.val):'-'}</td><td>${st(x)}</td></tr>`;
+  const head=`<tr><th class="l">종목</th><th>아침 확률</th><th>현재가</th><th>등락률</th><th>시가 대비</th><th>고가</th><th>상한가까지</th><th>거래대금</th><th>상태</th></tr>`;
+  const tbl=(rows,withRank)=>rows.length?`<table class="lv">${head}${rows.map((x,i)=>row(x,i,withRank)).join('')}</table>`:'<div class="ev" style="margin-bottom:18px">없음</div>';
+  const mrows=(MODE==='common'?d.morning.filter(x=>!x.pref):MODE==='liquid'?d.morning.filter(x=>!x.pref&&x.val!=null):d.morning).slice(0,5);
+  document.getElementById('live-morning').innerHTML=tbl(mrows,true);
+  document.getElementById('live-limit').innerHTML=tbl(d.limit,false);
+  document.getElementById('live-near').innerHTML=tbl(d.near.slice(0,30),false);
+  document.getElementById('lockline').textContent=`과거 일봉 기준, 장중 상한가에 닿은 종목 중 ${Math.round(d.lock_rate.all*100)}%가 상한가로 마감(아침 상위 25개 후보는 ${Math.round(d.lock_rate.morning*100)}%)`;
+}
 function setMode(m,btn){MODE=m;btn.parentNode.querySelectorAll('button').forEach(x=>x.classList.remove('on'));btn.classList.add('on');if(DATA){render('up',DATA.up,'var(--up)');}}
 const pf=(v)=>v<0.01?(v*100).toFixed(2)+'%':v<0.1?(v*100).toFixed(1)+'%':(v*100).toFixed(0)+'%';
 async function main(){
@@ -246,6 +290,7 @@ function stats(d){
   document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('on'));b.classList.add('on');document.querySelectorAll('.hist').forEach(x=>x.classList.remove('on'));document.getElementById(b.dataset.t).classList.add('on');});
 }
 main().catch(e=>{document.getElementById('sub').textContent='아직 데이터가 없습니다. '+e;});
+try{const v=localStorage.getItem('view');if(v==='live'){setView('live',document.querySelectorAll('#toptabs button')[1]);}}catch(e){}
 </script>
 </body>
 </html>
