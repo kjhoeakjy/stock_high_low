@@ -44,16 +44,23 @@ class Panel:
         self.y = {t: df[t].to_numpy("int8") for t in ("y_up", "y_touch_up")}
         self.y_gap = df["y_gap"].to_numpy("float32")
         self.y_oc = df["y_oc"].to_numpy("float32")
+        # 단타 라벨: 익일 시가 매수 → 종가 +10% 이상(실험 결과 시가 매수 수익에 가장 유리)
+        self.y["y_oc10"] = np.where(np.isnan(self.y_oc) | (self.y["y_up"] < 0), -1, (self.y_oc >= 0.10)).astype("int8")
         self.next_date = df["next_date"].to_numpy()
         self.ym = np.array([d[:6] for d in self.date])
         self.age_days = ((pd.to_datetime(self.date.max(), format="%Y%m%d")
                           - pd.to_datetime(self.date, format="%Y%m%d")).days.to_numpy()).astype("float32")
 
 
+HARD_NEG = 3.0  # 장중 상한가 도달 후 실패한 음성 가중(실험: 시가 매수 수익 +1.2%p)
+
+
 def _weights(p: Panel, idx: np.ndarray, y: np.ndarray, sampled: bool) -> np.ndarray:
     w = np.ones(len(idx), dtype="float32")
     if sampled:
         w = np.where(y == 1, 1.0, 1.0 / NEG_KEEP).astype("float32")
+    hard = (y == 0) & (p.y["y_touch_up"][idx] == 1)
+    w = np.where(hard, w * HARD_NEG, w).astype("float32")
     # 최근 가중(5년 전 0.5 → 지금 1.0)
     return w * (1.0 - 0.5 * np.clip(p.age_days[idx] / 1825.0, 0, 1)).astype("float32")
 
@@ -181,13 +188,13 @@ def run(df, months: int = 12, rounds: int = ROUNDS, n_seeds: int = 3) -> dict:
     p = df if isinstance(df, Panel) else Panel(df)
     print(f"[model] {len(p.cols)} features, X {p.X.shape} ({p.X.nbytes/1e9:.1f}GB)")
     result = {"features": p.cols, "targets": {}}
-    for target in ("y_up",):
+    for target in ("y_up", "y_oc10"):
         oos = walk_forward(p, target, months, rounds)
         stats = summarize(oos, target)
         print(f"[model] {target} OOS: {json.dumps({k: v for k, v in stats.items() if k not in ('buckets', 'monthly')}, ensure_ascii=False)}", flush=True)
         iso = fit_calibrator(oos, target)
         full = (p.y[target] >= 0) & (p.date >= TRAIN_START)
-        models = [train_one(p, target, full, rounds, seed=s) for s in range(n_seeds)]
+        models = [train_one(p, target, full, rounds, seed=s) for s in range(n_seeds if target == "y_up" else 1)]
         mdl = Ensemble(models)
         imp = pd.Series(mdl.feature_importance("gain"), index=p.cols).sort_values(ascending=False)
         result["targets"][target] = {"model": mdl, "iso": iso, "oos": oos, "stats": stats,

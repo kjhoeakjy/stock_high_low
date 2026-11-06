@@ -110,7 +110,7 @@ td:first-child,th:first-child{text-align:left}
   </div>
 
   <div class="foot">
-    확률은 당일 종가 상한가 마감 확률. 시가 매수 수익은 검증표 참조. 전일 종가·야간 해외시장 기준, 장중 변동 미반영. 투자 권유 아님.<br>
+    순위는 시가 매수→종가 +10% 모델 점수 기준. 큰 숫자는 당일 종가 상한가 마감 확률. 시가 매수 수익은 검증표 참조. 전일 종가·야간 해외시장 기준, 장중 변동 미반영. 투자 권유 아님.<br>
     자료: 네이버 금융(일봉·투자자별 매매·업종·테마·공시·뉴스), 야후 파이낸스(해외지수·환율), DART. 모델: LightGBM, 등온 보정.
   </div>
 </div>
@@ -165,13 +165,14 @@ function render(id,items,color){
   items=(MODE==='common'?items.filter(x=>!x.pref):MODE==='liquid'?items.filter(x=>!x.pref&&x.val!=null&&x.val>=1e9):items).slice(0,5);
   el.innerHTML=items.map((it,i)=>{
     const conf=it.hist_rate==null?'':`동일 구간 적중률 ${pf(it.hist_rate)} · ${it.hist_n.toLocaleString()}건`;
+    const trade=it.p_oc==null?'':`<span>시가 매수 +10% 확률 ${pf(it.p_oc)}</span>${it.trade_oc!=null?`<span class="${cls(it.trade_oc)}">동일 구간 시가→종가 ${sgn(it.trade_oc)}</span>`:''}${it.trade_oc_win!=null?`<span>승률 ${pf(it.trade_oc_win)}</span>`:''}`;
     const rs=it.reasons.map(x=>`<li class="${x.dir=='-'?'m':''}">${x.text}</li>`).join('');
     const ev=[...(it.evidence.disclosures||[]).map(x=>`<div>공시 ${x.t} · ${x.title}</div>`),...(it.evidence.news||[]).map(x=>`<div>뉴스 ${x.t.slice(4,6)}.${x.t.slice(6,8)} ${x.t.slice(8,10)}:${x.t.slice(10,12)} · <a href="${x.url}" target="_blank" rel="noopener">${x.title}</a></div>`)].join('');
     const llm=it.llm?`<div class="ev" style="margin:6px 0 2px;color:${it.llm.verdict=='호재'?'var(--up)':it.llm.verdict=='악재'?'var(--dn)':'var(--mut)'}">뉴스 판정 ${it.llm.verdict}${it.llm.event&&it.llm.event!='없음'?' · '+it.llm.event:''} · ${it.llm.note}</div>`:'';
     return `<div class="card" onclick="this.classList.toggle('open')">
       <div class="row"><span class="rank">${i+1}</span><span class="name">${it.name}<small>${it.market} ${it.code}</small>${it.halted?'<span class="halt">거래정지</span>':''}${it.pref?'<span class="halt" style="background:#2b2f3a;color:#aab">우선주</span>':''}${it.alert?`<span class="halt">${['','투자주의','투자경고','투자위험'][it.alert]}</span>`:''}${it.managed?'<span class="halt">관리종목</span>':''}</span><span class="p" style="color:${color}">${pf(it.p)}</span></div>
       <div class="meta"><span>${it.close.toLocaleString()}원</span><span class="${cls(it.ret1)}">전일 ${sgn(it.ret1)}</span>${it.mcap?`<span>시총 ${won(it.mcap)}</span>`:''}${it.val!=null?`<span>거래대금 ${won(it.val)}</span>`:''}${it.over_ret!=null?`<span class="${cls(it.over_ret)}">시간외 ${sgn(it.over_ret)}</span>`:''}<span>${conf}</span></div>
-      ${llm}<div class="bar"><i style="width:${Math.min(100,it.p*100*2)}%;background:${color}"></i></div>
+      ${trade?`<div class="meta">${trade}</div>`:''}${llm}<div class="bar"><i style="width:${Math.min(100,it.p*100*2)}%;background:${color}"></i></div>
       <div class="det">${candle(it)}${flowsSvg(it.chart)}${modelLine(it)}${groupLine(it.groups)}<ul class="rs">${rs}</ul>${anGrid(it.analysis)}<div class="ev">${ev||'<div>공시·뉴스 없음</div>'}</div></div>
     </div>`;}).join('');
 }

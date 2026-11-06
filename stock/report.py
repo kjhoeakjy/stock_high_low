@@ -246,17 +246,22 @@ def score_today(today: pd.DataFrame, res: dict, universe: list[dict], recent_p=N
         dart = json.loads((DATA / "dart_today.json").read_text())
     except Exception:  # noqa: BLE001
         dart = []
+    X_today = today[cols].to_numpy("float32")
+    for target, key in (("y_up", "up"), ("y_oc10", "oc")):
+        t = res["targets"][target]
+        raw = t["model"].predict(X_today)
+        today[f"p_{key}"] = t["iso"].predict(raw).astype("float32")
+        today[f"raw_{key}"] = raw.astype("float32")
     for target, key in (("y_up", "up"),):
         t = res["targets"][target]
-        raw = t["model"].predict(today[cols].to_numpy("float32"))
-        cal = t["iso"].predict(raw)
-        today[f"p_{key}"] = cal.astype("float32")
-        today[f"raw_{key}"] = raw.astype("float32")
-        # 순위는 보정 전 원점수로(등온 보정은 동률을 만들어 순위를 흐림), 표시 확률은 보정값
-        top = today.nlargest(TOP, f"raw_{key}")
+        cal = today["p_up"].to_numpy()
+        to = res["targets"]["y_oc10"]
+        # 순위는 단타 모델(시가 매수→종가 +10%) 원점수. 표시 확률은 상한가 모델 보정값.
+        top = today.nlargest(TOP, "raw_oc")
         items = []
         for _, r in top.iterrows():
             b = bucket(float(r[f"raw_{key}"]), t["stats"])
+            bo = bucket(float(r["raw_oc"]), to["stats"])
             items.append({
                 "code": r["code"], "name": names.get(r["code"], r["code"]),
                 "market": "코스닥" if r["market_kq"] else "코스피",
@@ -265,13 +270,15 @@ def score_today(today: pd.DataFrame, res: dict, universe: list[dict], recent_p=N
                 "val": float(np.expm1(r["logval"])) if pd.notna(r.get("logval")) else None,
                 "p": round(float(r[f"p_{key}"]), 4), "raw": round(float(r[f"raw_{key}"]), 4),
                 "hist_rate": b["rate"], "hist_n": b["n"], "hist_oc": b.get("oc"), "hist_unb": b.get("unb"), "hist_oc_win": b.get("oc_win"),
+                "p_oc": round(float(r["p_oc"]), 4), "raw_oc": round(float(r["raw_oc"]), 4),
+                "trade_rate": bo["rate"], "trade_n": bo["n"], "trade_oc": bo.get("oc"), "trade_oc_win": bo.get("oc_win"), "trade_unb": bo.get("unb"),
                 "analysis": analysis(r), "chart": _chart(r["code"], last_date, recent_p, recent_f),
                 "groups": _groups_of(r["code"], groups),
                 "halted": r["code"] in halted, "pref": bool(r.get("is_pref", 0)),
                 "alert": (status.get(r["code"]) or {}).get("alert"), "managed": (status.get(r["code"]) or {}).get("managed"),
                 "over_ret": (over.get(r["code"]) or {}).get("over_ret"), "over_status": (over.get(r["code"]) or {}).get("over_status"),
                 "up_limit": _up_limit(float(r["close"])),
-                "reasons": reasons(t["model"], cols, r),
+                "reasons": reasons(to["model"], cols, r),
             })
         ev = pmap(lambda it: _evidence(it["code"], it["name"], dart), items, workers=8, label=f"evidence-{key}")
         for it, e in zip(items, ev):
@@ -391,12 +398,12 @@ def write(last: pd.DataFrame, actual: pd.DataFrame, res: dict, universe: list[di
     doc["perf"] = _append_perf(doc, stats["y_up"])
     (OUT / "latest.json").write_text(json.dumps(doc, ensure_ascii=False))
     # 전 종목 점수(검색용, 가벼운 버전)
-    slim = scored[["code", "close", "ret1", "p_up"]].copy()
+    slim = scored[["code", "close", "ret1", "p_up", "p_oc", "raw_oc"]].copy()
     names = {u["code"]: u["name"] for u in universe}
     slim["name"] = slim["code"].map(names)
-    slim = slim.sort_values("p_up", ascending=False, kind="stable")
+    slim = slim.sort_values("raw_oc", ascending=False, kind="stable")
     (OUT / "scores.json").write_text(json.dumps(
-        {"as_of": today["as_of"], "rows": [[r.code, r.name, float(r.close), round(float(r.ret1), 4), round(float(r.p_up), 4)]
+        {"as_of": today["as_of"], "rows": [[r.code, r.name, float(r.close), round(float(r.ret1), 4), round(float(r.p_up), 4), round(float(r.p_oc), 4)]
                                           for r in slim.itertuples()]}, ensure_ascii=False))
     print(f"[report] {target_date}: up top {[(i['name'], i['p']) for i in doc['up'][:5]]}")
     return doc
