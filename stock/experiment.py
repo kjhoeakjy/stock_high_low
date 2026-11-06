@@ -295,8 +295,8 @@ def main(argv):
             months = int(a.split("=")[1])
         else:
             names.append(a)
-    prices, flows, universe, groups, market, disc, news = features.load_all()
-    panel = features.build(prices, flows, universe, groups, market, disclosures=disc, news=news)
+    prices, flows, universe, groups, market, disc, news, board = features.load_all()
+    panel = features.build(prices, flows, universe, groups, market, disclosures=disc, news=news, board=board)
     del prices, flows
     p = Panel(panel)
     del panel

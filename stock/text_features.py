@@ -139,3 +139,37 @@ def build_text_features(panel_keys: pd.DataFrame, disclosures: pd.DataFrame | No
         out["n_share"] = (out["n_cnt"] / tot.replace(0, np.nan)).astype("float32")
         out["n_share_rk"] = out.groupby("date")["n_cnt"].rank(pct=True).astype("float32")
     return out
+
+
+BOARD_COLS = ["b_n", "b_rec", "b_notrec", "b_holder", "b_reply", "b_kw_limit", "b_kw_surge", "b_kw_crash", "b_kw_force",
+              "b_kw_news", "b_kw_issue", "b_kw_theme", "b_kw_buy", "b_kw_sell"]  # 조회수는 수집 시점에 따라 달라 제외
+
+
+def build_board_features(panel_keys: pd.DataFrame, board: pd.DataFrame) -> pd.DataFrame:
+    """종목토론방 집계(묶음 날짜=07:00 기준 달력일)를 거래일 행에 붙인다. 주말 글은 직전 거래일(금요일) 행으로."""
+    trading_days = np.sort(panel_keys["date"].unique())
+    b = board[board["date"] >= trading_days[0]].copy()
+    pos = np.searchsorted(trading_days, b["date"].to_numpy(), side="right") - 1
+    b = b[pos >= 0]
+    b["date"] = trading_days[pos[pos >= 0]]
+    cols = [c for c in BOARD_COLS if c in b.columns]
+    agg = b.groupby(["code", "date"], as_index=False)[cols].sum()
+    out = panel_keys[["code", "date"]].merge(agg, on=["code", "date"], how="left")
+    # 수집 시작 이전은 결측, 이후는 0
+    first = b.groupby("code")["date"].min()
+    has = out["date"] >= out["code"].map(first).fillna("99999999")
+    for c in cols:
+        out[c] = np.where(has, out[c].fillna(0), np.nan).astype("float32")
+    out = out.sort_values(["code", "date"])
+    g = out.groupby("code", sort=False)
+    out["b_n3"] = g["b_n"].transform(lambda s: s.rolling(3, min_periods=1).sum()).astype("float32")
+    out["b_n20"] = g["b_n"].transform(lambda s: s.rolling(20, min_periods=1).mean()).astype("float32")
+    out["b_surge"] = (out["b_n"] / (out["b_n20"] + 0.5)).astype("float32")
+    out["b_rec_rate"] = (out["b_rec"] / (out["b_n"] + 1)).astype("float32")
+    for k in ("b_kw_limit", "b_kw_surge", "b_kw_crash", "b_kw_force", "b_kw_buy"):
+        if k in out.columns:
+            out[f"{k}_r"] = (out[k] / (out["b_n"] + 1)).astype("float32")
+    tot = out.groupby("date")["b_n"].transform("sum")
+    out["b_share"] = (out["b_n"] / tot.replace(0, np.nan)).astype("float32")
+    out["b_share_rk"] = out.groupby("date")["b_n"].rank(pct=True).astype("float32")
+    return out

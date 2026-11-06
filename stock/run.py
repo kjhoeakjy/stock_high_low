@@ -14,8 +14,8 @@ def main(argv):
     rounds = model.ROUNDS
     if "--fast" in argv:
         months, rounds = 3, 200
-    prices, flows, universe, groups, market, disc, news = features.load_all()
-    panel = features.build(prices, flows, universe, groups, market, disclosures=disc, news=news)
+    prices, flows, universe, groups, market, disc, news, board = features.load_all()
+    panel = features.build(prices, flows, universe, groups, market, disclosures=disc, news=news, board=board)
     days = sorted(prices["date"].unique())
     cut = days[-70] if len(days) > 70 else days[0]
     recent_p = prices[prices["date"] >= cut].copy()

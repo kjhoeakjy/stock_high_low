@@ -81,7 +81,7 @@ def market_features(mk: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------- build
 def build(prices: pd.DataFrame, flows: pd.DataFrame | None, universe: list[dict],
           groups: dict, market: pd.DataFrame, start: str = "20190101",
-          disclosures: pd.DataFrame | None = None, news: pd.DataFrame | None = None) -> pd.DataFrame:
+          disclosures: pd.DataFrame | None = None, news: pd.DataFrame | None = None, board: pd.DataFrame | None = None) -> pd.DataFrame:
     df = prices[prices["date"] >= start].sort_values(["code", "date"]).reset_index(drop=True).copy()
     # 장중·장 마감 직후 실행이면 당일 행은 미완성이므로 제외(16:00 KST 이전)
     import datetime as _dt
@@ -250,6 +250,10 @@ def build(prices: pd.DataFrame, flows: pd.DataFrame | None, universe: list[dict]
         from stock.text_features import build_text_features
         tf = build_text_features(df[["code", "date"]], disclosures, news)
         df = df.merge(tf, on=["code", "date"], how="left")
+    if board is not None and len(board):
+        from stock.text_features import build_board_features
+        bf = build_board_features(df[["code", "date"]], board)
+        df = df.merge(bf, on=["code", "date"], how="left")
         # 투자경고·위험 지정 공시 후 경과일(문헌: 지정 후 3일 고점, 20일 하락)
         if "d_alert_set" in df.columns:
             df["since_alert"] = _days_since(df["d_alert_set"].fillna(0) > 0, df["code"], cap=60).astype("int16")
@@ -319,13 +323,14 @@ def load_all():
     market = pd.read_parquet(DATA / "market.parquet")
     disc = pd.read_parquet(DATA / "disclosures.parquet") if (DATA / "disclosures.parquet").exists() else None
     news = pd.read_parquet(DATA / "news.parquet") if (DATA / "news.parquet").exists() else None
-    return prices, flows, universe, groups, market, disc, news
+    board = pd.read_parquet(DATA / "board.parquet") if (DATA / "board.parquet").exists() else None
+    return prices, flows, universe, groups, market, disc, news, board
 
 
 if __name__ == "__main__":
     import time
     t0 = time.time()
-    prices, flows, universe, groups, market, disc, news = load_all()
+    prices, flows, universe, groups, market, disc, news, board = load_all()
     df = build(prices, flows, universe, groups, market, disclosures=disc, news=news)
     print(df.shape, f"{time.time()-t0:.0f}s")
     print("positives up/dn:", (df.y_up == 1).sum(), (df.y_dn == 1).sum(), "valid", (df.y_up >= 0).sum())
