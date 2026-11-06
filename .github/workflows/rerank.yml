@@ -32,6 +32,8 @@ jobs:
     timeout-minutes: 180
     env:
       PYTHONUNBUFFERED: "1"
+      TABPFN_TOKEN: ${{ secrets.TABPFN_TOKEN }}
+      HF_TOKEN: ${{ secrets.TABPFN_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
