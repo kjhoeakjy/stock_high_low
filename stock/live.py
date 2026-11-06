@@ -144,7 +144,8 @@ def fetch_index() -> dict:
 
 TRADE_COST = 0.0053  # 모델 검증과 동일한 왕복 비용 가정(세금 0.20% + 수수료 0.03% + 미끄러짐 0.30%)
 ENTRY = ("0905", "0920")  # 진입 기록 창: 이 구간의 첫 스냅샷 가격
-EXIT = "1515"  # 청산 기록: 이 시각 이후 첫 스냅샷 가격(15:20 종가 단일가 전)
+EXIT = "1515"
+STOP = 0.05  # 손절선(매수가 대비)  # 청산 기록: 이 시각 이후 첫 스냅샷 가격(15:20 종가 단일가 전)
 
 
 def trade_log(day: str, hm: str, morning_rows: list[dict], trade_today) -> dict:
@@ -161,12 +162,15 @@ def trade_log(day: str, hm: str, morning_rows: list[dict], trade_today) -> dict:
             log["items"][x["code"]] = {"name": x["name"], "rank": x["morning_rank"], "entry": None if unb else x["price"],
                                        "entry_at": hm, "skip": "시가 상한가" if unb else None}
             log["entry_at"] = log["entry_at"] or hm
-    # 매도 규칙: 상한가 도달 즉시 매도, 아니면 15:15 매도
+    # 매도 규칙: 매수가 대비 -5% 도달 시 손절, 상한가 도달 즉시 매도, 아니면 15:15 매도
     for x in top:
         it = log["items"].get(x["code"])
-        if it and it.get("entry") and it.get("exit") is None and (hm >= EXIT or x["status"] == "상한가"):
+        if not (it and it.get("entry") and it.get("exit") is None):
+            continue
+        stop = x["price"] / it["entry"] - 1 <= -STOP
+        if hm >= EXIT or x["status"] == "상한가" or stop:
             it["exit"], it["exit_at"] = x["price"], hm
-            it["exit_why"] = "상한가" if x["status"] == "상한가" and hm < EXIT else "15:15"
+            it["exit_why"] = "손절" if stop else ("상한가" if x["status"] == "상한가" and hm < EXIT else "15:15")
             it["net"] = round(x["price"] / it["entry"] - 1 - TRADE_COST, 4)
             log["exit_at"] = log["exit_at"] or hm
     for x in top:

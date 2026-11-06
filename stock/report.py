@@ -319,8 +319,12 @@ def grade_history(actual: pd.DataFrame) -> list[dict]:
                     it["actual_ret"] = float(r["ret1"])
                     it["actual_gap"] = float(r["gap"]) if pd.notna(r["gap"]) else None
                     # 매도 규칙(상한가 도달 즉시 매도, 아니면 종가) 기준 시가 매수 수익
-                    ex = r["hi_ret"] if r["hi_ret"] >= 0.295 else r["ret1"]
-                    it["actual_oc"] = float((1 + ex) / (1 + r["gap"]) - 1) if pd.notna(r["gap"]) else None
+                    if pd.notna(r["gap"]):
+                        oc_lo = (1 + r["lo_ret"]) / (1 + r["gap"]) - 1
+                        ex = r["hi_ret"] if r["hi_ret"] >= 0.295 else r["ret1"]
+                        it["actual_oc"] = -0.05 if oc_lo <= -0.05 else float((1 + ex) / (1 + r["gap"]) - 1)
+                    else:
+                        it["actual_oc"] = None
                     it["hit"] = bool(r["ret1"] >= 0.295)
                     it["touch"] = bool(r["hi_ret"] >= 0.295)
         if a is not None and len(a):

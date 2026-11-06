@@ -86,6 +86,7 @@ tr.ex td{opacity:.5}
 .plan .ctl{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;margin:8px 0 12px;font-size:17px}
 .plan input{background:var(--chip);color:var(--fg,#eee);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:18px;width:170px;font-variant-numeric:tabular-nums}
 .plan button{background:var(--up);color:#fff;border:0;border-radius:10px;padding:9px 16px;font-size:16px;cursor:pointer}
+.plan .rules{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin:4px 0 10px;font-size:15px}.plan .rules b{font-size:16px;margin-right:4px}.plan .rules span{background:var(--chip);border-radius:8px;padding:3px 9px}
 .plan details{margin-top:8px}.plan summary{cursor:pointer;color:var(--mut);font-size:15px}
 .plan .lv td.l small{color:var(--mut)}
 .plan .buy{margin:2px 0;font-size:16px}.plan .buy input{width:84px;padding:4px 6px;font-size:15px}
@@ -118,6 +119,7 @@ tr.ex td{opacity:.5}
   <section style="max-width:960px" class="plan">
     <h2>매수 계획</h2>
     <div class="h2sub" id="plansub"></div>
+    <div class="rules"><b>매매 규칙</b><span>09:05~09:20 상위 종목 매수(아래 주수)</span><span>매수가 대비 −5% 도달 시 즉시 매도(손절)</span><span>상한가 도달 시 즉시 매도</span><span>그 외 15:15 전량 매도</span><span>시가 상한가·거래정지·점수 하위 30% 날은 매수 안 함</span></div>
     <div class="ctl"><label>오늘 투자 금액 <input id="capital" type="number" step="10000" min="0" inputmode="numeric"> 원</label><button onclick="applyCapital()">적용</button></div>
     <div id="plan"></div>
     <div class="ctl"><button onclick="confirmPlan()">매수 확정 · 내 기록에 저장</button><span id="planmsg" style="color:var(--mut);font-size:15px"></span></div>
@@ -171,7 +173,7 @@ async function loadLive(){
   mk.insertAdjacentHTML('beforeend',`<div><b>상한가</b>${d.n_limit}</div><div><b>10%↑</b>${d.n_up10}</div>${d.up_ratio!=null?`<div><b>상승 비율</b>${Math.round(d.up_ratio*100)}%</div>`:''}`);
   const st=x=>`<span class="st ${x.status=='상한가'?'lim':''}">${x.status}</span>${x.gap!=null&&x.gap>=0.295?'<br><small style="color:var(--mut)">시가 상한가 · 매수 불가 · 제외</small>':''}`;
   const TR=(LIVE&&LIVE.trades&&LIVE.trades.items)||{};
-  const tcell=x=>{const t=TR[x.code];if(!t)return '<td>-</td><td>-</td>';if(t.skip)return `<td>-</td><td><small style="color:var(--mut)">${t.skip}</small></td>`;const v=t.net!=null?t.net:t.now;return `<td>${t.entry.toLocaleString()}</td><td class="${cls(v)}">${v==null?'-':sgn(v)}${t.net!=null?'<br><small style="color:var(--mut)">'+(t.exit_why=='상한가'?'상한가 매도 ':'청산 ')+t.exit.toLocaleString()+'</small>':''}</td>`;};
+  const tcell=x=>{const t=TR[x.code];if(!t)return '<td>-</td><td>-</td>';if(t.skip)return `<td>-</td><td><small style="color:var(--mut)">${t.skip}</small></td>`;const v=t.net!=null?t.net:t.now;return `<td>${t.entry.toLocaleString()}</td><td class="${cls(v)}">${v==null?'-':sgn(v)}${t.net!=null?'<br><small style="color:var(--mut)">'+(t.exit_why=='상한가'?'상한가 매도 ':t.exit_why=='손절'?'손절 ':'청산 ')+t.exit.toLocaleString()+'</small>':''}</td>`;};
   const row=(x,i,withRank)=>`<tr${withRank&&x.gap!=null&&x.gap>=0.295?' class="ex"':''}><td class="l">${withRank?`<span class="rank">${x.morning_rank||i+1}</span>`:''}<b>${x.name}</b>${x.pref?' <small style="color:var(--mut)">우선주</small>':''}</td><td>${x.p!=null?pf(x.p):'-'}</td><td>${x.price.toLocaleString()}</td><td class="big ${cls(x.ret)}">${sgn(x.ret)}</td><td class="${cls(x.o_ret)}">${x.o_ret==null?'-':sgn(x.o_ret)}</td>${withRank?tcell(x):''}<td>${x.hi_ret==null?'-':sgn(x.hi_ret)}</td><td>${x.status=='상한가'?'도달':f(x.to_limit,1)}</td><td>${x.val!=null?won(x.val):'-'}</td><td>${st(x)}</td></tr>`;
   const head=w=>`<tr><th class="l">종목</th><th>장전 확률</th><th>현재가</th><th>등락률</th><th>시가 대비</th>${w?'<th>진입가 09:05</th><th>진입 대비</th>':''}<th>고가</th><th>상한가 괴리</th><th>거래대금</th><th>상태</th></tr>`;
   const tbl=(rows,withRank)=>rows.length?`<table class="lv">${head(withRank)}${rows.map((x,i)=>row(x,i,withRank)).join('')}</table>`:'<div class="ev" style="margin-bottom:18px">없음</div>';
@@ -259,7 +261,7 @@ function renderPlan(A){
   const {rows,cash}=allocate(items,A,priceOf);
   const spent=A-cash, flag=DATA.trade_today===false;
   const acc=DATA.account, accNote=acc&&acc.cash>0?` · 계좌 현금 ${acc.cash.toLocaleString()}원(${(acc.at||'').slice(5,16)} 조회)`:'';
-  document.getElementById('plansub').innerHTML=(flag?'<span class="halt">미거래 권고</span> 상위 5 평균 점수가 검증 기간 하위 30% 미만 · 현금 보유 권장 · ':'')+`${A.toLocaleString()}원 기준 · 기준가 ${liveOK?'실시간 현재가':'전일 종가(09:00 이후 현재가로 갱신)'} · 09:05~09:20 매수 · 상한가 도달 즉시 매도, 아니면 15:15 매도${accNote}`;
+  document.getElementById('plansub').innerHTML=(flag?'<span class="halt">미거래 권고</span> 상위 5 평균 점수가 검증 기간 하위 30% 미만 · 현금 보유 권장 · ':'')+`${A.toLocaleString()}원 기준 · 기준가 ${liveOK?'실시간 현재가':'전일 종가(09:00 이후 현재가로 갱신)'} · 09:05~09:20 매수 · −5% 손절 · 상한가 즉시 매도 · 그 외 15:15 매도${accNote}`;
   const tr=rows.map((x,i)=>`<tr${x.locked||x.n===0?' class="ex"':''}><td class="l"><span class="rank">${i+1}</span><b>${x.it.name}</b>${x.locked?' <small>시가 상한가 · 매수 불가</small>':x.n===0?' <small>금액 부족</small>':''}</td><td>${pf(x.it.p_oc!=null?x.it.p_oc:x.it.p)}</td><td>${x.it.p_lock!=null?pf(x.it.p_lock):'-'}</td><td>${Math.round((x.w||0)*100)}%</td><td>${x.price.toLocaleString()}${x.live?'':'<br><small style="color:var(--mut)">전일 종가</small>'}</td><td class="big">${x.n.toLocaleString()}주</td><td>${(x.n*x.price).toLocaleString()}</td></tr>`).join('');
   document.getElementById('plan').innerHTML=rows.length?`<table class="lv"><tr><th class="l">종목</th><th>+10% 확률</th><th>매수 불가 확률</th><th>비중</th><th>기준가</th><th>주수</th><th>매수 금액</th></tr>${tr}<tr><td class="l"><b>합계</b></td><td></td><td></td><td>${Math.round(spent/A*100)||0}%</td><td></td><td></td><td><b>${spent.toLocaleString()}</b><br><small style="color:var(--mut)">남는 현금 ${cash.toLocaleString()}</small></td></tr></table>`:'<div class="ev">후보 없음</div>';
   PLAN={date:td,capital:A,rows:rows.filter(x=>x.n>0).map(x=>({code:x.it.code,name:x.it.name,n:x.n,price:x.price}))};
@@ -423,8 +425,8 @@ function stats(d){
   const pct=v=>`<span class="${cls(v)}">${sgn(v)}</span>`, net=su.net||null;
   const upRate=trade?su['up@5']:su['p@5'], tenRate=trade?su['p@5']:su['up10@5'];
   const sim=su.sim||null, simp=su.sim_policy||null, won0=v=>Math.round(v).toLocaleString()+'원';
-  const simTiles=sim?kv(`<span class="${cls(sim.cum)}">${won0(sim.final)}</span>`,'100만 원 시작 시 잔고(12개월)','매일 잔고 전액을 매수 가능한 상위 5종목에 주수 단위 배분, 시가 매수, 상한가 도달 즉시 매도·아니면 종가 매도, 비용 차감, 복리')+kv(pct(sim.cum),'복리 누적 수익률','시가 상한가·배분 금액으로 1주도 못 사는 종목 제외')+kv(pct(sim.mdd),'최대 낙폭','잔고 고점 대비 최대 하락')+kv(f(sim.win,0),'수익일 비율','거래일 중 잔고가 늘어난 날')+(simp?kv(`<span class="${cls(simp.cum)}">${won0(simp.final)}</span>`,'미거래일 규칙 적용 시 잔고','점수 하위 30% 날은 현금 보유'):''):'';
-  g.innerHTML=simTiles+(net&&net.trade_day!=null?kv(pct(net.trade_day),'거래일 평균 순수익','상위 5종목 시가 매수, 상한가 도달 즉시 매도·아니면 종가 매도, 세금·수수료·미끄러짐 '+(net.cost*100).toFixed(2)+'% 차감')+kv(pct(net.trade_cum),'12개월 누적 순수익','거래일 순수익 합계(복리 미적용, 종목별 균등 배분)')+kv(f(1-net.trade_frac,0),'미거래일 비율','상위 5 평균 점수가 과거 하위 30% 미만인 날은 거래하지 않음')+kv(f(net.trade_loss_days,0),'손실일 비율','거래일 중 순수익이 음수인 날 비율')+kv(pct(net.trade_worst),'최악 거래일','거래일 중 최저 순수익'):'')
+  const simTiles=sim?kv(`<span class="${cls(sim.cum)}">${won0(sim.final)}</span>`,'100만 원 시작 시 잔고(12개월)','매일 잔고 전액을 매수 가능한 상위 5종목에 주수 단위 배분, 시가 매수, −5% 손절·상한가 즉시 매도·그 외 종가 매도, 비용 차감, 복리')+kv(pct(sim.cum),'복리 누적 수익률','시가 상한가·배분 금액으로 1주도 못 사는 종목 제외')+kv(pct(sim.mdd),'최대 낙폭','잔고 고점 대비 최대 하락')+kv(f(sim.win,0),'수익일 비율','거래일 중 잔고가 늘어난 날')+(simp?kv(`<span class="${cls(simp.cum)}">${won0(simp.final)}</span>`,'미거래일 규칙 적용 시 잔고','점수 하위 30% 날은 현금 보유'):''):'';
+  g.innerHTML=simTiles+(net&&net.trade_day!=null?kv(pct(net.trade_day),'거래일 평균 순수익','상위 5종목 시가 매수, −5% 손절·상한가 즉시 매도·그 외 종가 매도, 세금·수수료·미끄러짐 '+(net.cost*100).toFixed(2)+'% 차감')+kv(pct(net.trade_cum),'12개월 누적 순수익','거래일 순수익 합계(복리 미적용, 종목별 균등 배분)')+kv(f(1-net.trade_frac,0),'미거래일 비율','상위 5 평균 점수가 과거 하위 30% 미만인 날은 거래하지 않음')+kv(f(net.trade_loss_days,0),'손실일 비율','거래일 중 순수익이 음수인 날 비율')+kv(pct(net.trade_worst),'최악 거래일','거래일 중 최저 순수익'):'')
     +(su['oc_mean_ex_unbuyable@5']!=null?kv(pct(su['oc_mean_ex_unbuyable@5']),'시가 매수 평균 수익(비용 전)','익일 시가 매수·종가 매도 평균 수익률'):'')
     +(tenRate!=null?kv(f(tenRate,0),'상위5 +10% 이상','상위 5종목 중 익일 종가 +10% 이상 상승 비율'):'')+(su['up5@5']!=null?kv(f(su['up5@5'],0),'상위5 +5% 이상','상위 5종목 중 익일 종가 +5% 이상 상승 비율'):'')+(upRate!=null?kv(f(upRate,0),'상위5 상한가 비율','상위 5종목 중 익일 상한가 마감 비율'):'')
     +(su['oc10@5']!=null?kv(f(su['oc10@5'],0),'시가 매수 +10% 이상','시가 매수 후 종가 +10% 이상 비율'):'')+(su['oc_win@5']!=null?kv(f(su['oc_win@5'],0),'시가 매수 상승 마감','시가 매수 시 종가가 시가보다 높은 비율'):'')+(su['unbuyable@5']!=null?kv(f(su['unbuyable@5'],0),'시가 상한가 비율','시가부터 상한가라 매수 불가한 비율'):'')+(su['open_gap@5']!=null?kv(sgn(su['open_gap@5']),'평균 시가 갭','익일 시가의 전일 종가 대비 평균 등락'):'')
