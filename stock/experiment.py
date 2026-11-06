@@ -105,7 +105,7 @@ def fit(p: Panel, cfg: dict, tr: np.ndarray, y_all, seed=0):
         if cfg.get("graded"):
             y = (p.y["y_up"][idx] * 2 + (np.nan_to_num(p.y_oc[idx]) >= 0.10)).astype("int8")
         _, counts = np.unique(p.date[idx], return_counts=True)
-        params.update(objective="lambdarank", metric="ndcg", lambdarank_truncation_level=30, label_gain=[0, 1, 3])
+        params.update(objective="lambdarank", metric="ndcg", lambdarank_truncation_level=30, label_gain=[0, 1, 3, 7])
         ds = lgb.Dataset(X, y, group=counts, feature_name=cols, free_raw_data=True)
     else:
         if objective == "regression":
