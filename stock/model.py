@@ -35,6 +35,8 @@ class Panel:
 
     def __init__(self, df: pd.DataFrame):
         self.cols = feature_cols(df)
+        # 학습 시작일 이전 행은 룩백 계산용이라 행렬에서 뺀다(메모리)
+        df = df[df["date"] >= TRAIN_START]
         self.X = df[self.cols].to_numpy("float32")
         self.date = df["date"].to_numpy()
         self.code = df["code"].to_numpy()
@@ -164,8 +166,9 @@ class Ensemble:
         return np.mean([m.feature_importance(kind) for m in self.models], axis=0)
 
 
-def run(df: pd.DataFrame, months: int = 12, rounds: int = ROUNDS, n_seeds: int = 3) -> dict:
-    p = Panel(df)
+def run(df, months: int = 12, rounds: int = ROUNDS, n_seeds: int = 3) -> dict:
+    """df: 특징 DataFrame 또는 미리 만든 Panel(호출자가 DataFrame을 지워 메모리를 아낄 수 있음)."""
+    p = df if isinstance(df, Panel) else Panel(df)
     print(f"[model] {len(p.cols)} features, X {p.X.shape} ({p.X.nbytes/1e9:.1f}GB)")
     result = {"features": p.cols, "targets": {}}
     for target in ("y_up",):

@@ -24,9 +24,12 @@ def main(argv):
     last = panel[panel["date"] == last_date].copy()
     actual = panel[["code", "date", "ret1", "hi_ret", "lo_ret", "gap"]].copy()
     n_train, train_from = int((panel["y_up"] >= 0).sum()), str(panel["date"].min())
-    res = model.run(panel, months=months, rounds=rounds)
+    p = model.Panel(panel)
     del panel
     import gc; gc.collect()
+    res = model.run(p, months=months, rounds=rounds)
+    del p
+    gc.collect()
     report.write(last, actual, res, universe, market, n_train, train_from)
     print(f"[run] done {time.time()-t0:.0f}s")
 
