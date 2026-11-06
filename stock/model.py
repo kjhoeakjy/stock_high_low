@@ -41,7 +41,7 @@ class Panel:
         self.date = df["date"].to_numpy()
         self.code = df["code"].to_numpy()
         self.close = df["close"].to_numpy("float32")
-        self.y = {t: df[t].to_numpy("int8") for t in ("y_up",)}
+        self.y = {t: df[t].to_numpy("int8") for t in ("y_up", "y_touch_up")}
         self.y_gap = df["y_gap"].to_numpy("float32")
         self.y_oc = df["y_oc"].to_numpy("float32")
         self.next_date = df["next_date"].to_numpy()

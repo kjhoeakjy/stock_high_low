@@ -43,6 +43,11 @@ CONFIGS = {
     "l2_1": {"params": {"lambda_l2": 1.0}},
     "minleaf50": {"params": {"min_data_in_leaf": 50}},
     "pos_w3": {"pos_weight": 3.0},
+    "hardneg": {"hard_neg": 3.0},            # 다음날 상한가 터치 후 실패한 음성에 가중
+    "twostage": {"two_stage": True},         # P(터치) × P(마감|터치)
+    "blend": {"blend": True},                # 이진 + 랭킹 순위 평균
+    "seeds3": {"n_seeds": 3},
+    "touch": {"target": "touch"},            # 장중 터치 자체를 예측
 }
 
 
@@ -51,6 +56,11 @@ def labels(p: Panel, target: str):
     valid = yu >= 0
     if target == "up":
         return yu.astype("int8"), valid
+    if target == "touch":
+        return p.y["y_touch_up"].astype("int8"), valid & (p.y["y_touch_up"] >= 0)
+    if target == "up_hold":  # 터치한 날만: 마감 여부
+        yt = p.y["y_touch_up"]
+        return yu.astype("int8"), valid & (yt == 1)
     if target == "up_buyable":
         y = ((yu == 1) & (p.y_gap < 0.295)).astype("int8")
         return y, valid & ~np.isnan(p.y_gap)
@@ -85,6 +95,9 @@ def fit(p: Panel, cfg: dict, tr: np.ndarray, y_all, seed=0):
         w = w * (1.0 - 0.5 * np.clip(p.age_days[idx] / 1825.0, 0, 1)).astype("float32")
     if cfg.get("pos_weight"):
         w = np.where(y > 0, w * cfg["pos_weight"], w).astype("float32")
+    if cfg.get("hard_neg"):
+        hard = (y <= 0) & (p.y["y_touch_up"][idx] == 1)
+        w = np.where(hard, w * cfg["hard_neg"], w).astype("float32")
     if objective == "lambdarank":
         order = np.argsort(p.date[idx], kind="stable")
         idx, X, y, w = idx[order], X[order], y[order], w[order]
@@ -135,15 +148,31 @@ def run(name: str, p: Panel, months: int, seed: int = 0) -> dict:
         if te.sum() == 0:
             continue
         tr &= p.date < p.date[tr].max()
-        mdl, cols = fit(p, cfg, tr, y_all, seed)
         ti = np.flatnonzero(te)
-        Xte = p.X[ti]
-        if cols != p.cols:
-            Xte = Xte[:, [p.cols.index(c) for c in cols]]
-        pr = mdl.predict(Xte).astype("float32")
+
+        def _pred(c, yv, trm, s=seed):
+            mdl, cols = fit(p, c, trm, yv, s)
+            Xte = p.X[ti]
+            if cols != p.cols:
+                Xte = Xte[:, [p.cols.index(c2) for c2 in cols]]
+            out = mdl.predict(Xte).astype("float32")
+            del mdl
+            return out
+
+        if cfg.get("two_stage"):
+            yt, vt = labels(p, "touch")
+            yh, vh = labels(p, "up_hold")
+            pr = _pred({}, yt, tr & vt) * _pred({}, yh, tr & vh)
+        elif cfg.get("blend"):
+            a, b = _pred({}, y_all, tr), _pred({"objective": "lambdarank"}, y_all, tr)
+            d = pd.DataFrame({"date": p.date[ti], "a": a, "b": b})
+            pr = (d.groupby("date")["a"].rank(pct=True) + d.groupby("date")["b"].rank(pct=True)).to_numpy("float32") / 2
+        elif cfg.get("n_seeds", 1) > 1:
+            pr = np.mean([_pred(cfg, y_all, tr, s) for s in range(cfg["n_seeds"])], axis=0).astype("float32")
+        else:
+            pr = _pred(cfg, y_all, tr)
         outs.append(pd.DataFrame({"date": p.date[ti], "y_up": p.y["y_up"][ti], "p": pr, "y_gap": p.y_gap[ti], "y_oc": p.y_oc[ti],
                                   "pref": p.X[ti, i_pref], "val": np.expm1(p.X[ti, i_val])}))
-        del mdl, Xte
         gc.collect()
         print(f"[exp {name}] {m} done {time.time()-t0:.0f}s", flush=True)
     oos = pd.concat(outs, ignore_index=True)
