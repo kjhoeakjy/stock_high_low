@@ -38,6 +38,14 @@ h2{font-size:26px;margin:0 0 4px}
 .ev{font-size:16px;color:var(--mut)}
 .ev a{color:#c8cdd6;text-decoration:none}
 .ev div{padding:2px 0}
+.chart{width:100%;height:auto;display:block;margin:4px 0 10px}
+.an{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:6px 18px;margin:8px 0 12px}
+.an h4{grid-column:1/-1;margin:10px 0 0;font-size:15px;color:var(--mut);font-weight:600;letter-spacing:.3px}
+.an div{display:flex;justify-content:space-between;font-size:16px;padding:2px 0;border-bottom:1px solid var(--line)}
+.an div b{font-weight:600;font-variant-numeric:tabular-nums}
+.tagline{color:var(--mut);font-size:15px;margin:0 0 8px}
+.tagline span{background:var(--chip);border-radius:8px;padding:2px 8px;margin-right:6px;display:inline-block;margin-bottom:4px}
+.mdl{font-size:16px;margin:0 0 10px;color:#c8cdd6}
 .stats{margin-top:40px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px}
 .stats h3{margin:0 0 10px;font-size:22px}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
@@ -63,19 +71,20 @@ td:first-child,th:first-child{text-align:left}
   <div class="sub" id="sub">불러오는 중</div>
   <div class="mk" id="mk"></div>
   <div class="tabs" style="margin:0 0 14px"><button class="on" onclick="setMode('all',this)">전체</button><button onclick="setMode('common',this)">보통주만</button><button onclick="setMode('liquid',this)">보통주 · 거래대금 10억↑</button></div>
-  <div class="cols">
-    <section>
-      <h2 class="pos">상한가 후보</h2>
-      <div class="h2sub" id="upsub"></div>
-      <div id="up"></div>
-    </section>
-  </div>
+  <section style="max-width:960px">
+    <h2 class="pos">상한가 후보</h2>
+    <div class="h2sub" id="upsub"></div>
+    <div id="up"></div>
+  </section>
 
   <div class="stats">
-    <h3>지난 12개월 검증 (매달, 그 이전 데이터로만 학습해 예측)</h3>
+    <h3>모델 성능</h3>
+    <div class="h2sub" id="perfsub"></div>
     <div class="grid" id="stat"></div>
-    <div class="tabs"><button class="on" data-t="h-rec">최근 예측 채점</button><button data-t="h-up">상한가 확률 구간별 적중</button><button data-t="h-imp">중요 변수</button></div>
+    <div id="monthly"></div>
+    <div class="tabs"><button class="on" data-t="h-rec">실전 기록</button><button data-t="h-perf">학습 추이</button><button data-t="h-up">확률 구간별</button><button data-t="h-imp">중요 변수</button></div>
     <div id="h-rec" class="hist on"></div>
+    <div id="h-perf" class="hist"></div>
     <div id="h-up" class="hist"></div>
     <div id="h-imp" class="hist"></div>
   </div>
@@ -119,8 +128,103 @@ function render(id,items,color){
       <div class="row"><span class="rank">${i+1}</span><span class="name">${it.name}<small>${it.market} ${it.code}</small>${it.halted?'<span class="halt">거래정지</span>':''}${it.pref?'<span class="halt" style="background:#2b2f3a;color:#aab">우선주</span>':''}${it.alert?`<span class="halt">${['','투자주의','투자경고','투자위험'][it.alert]}</span>`:''}${it.managed?'<span class="halt">관리종목</span>':''}</span><span class="p" style="color:${color}">${pf(it.p)}</span></div>
       <div class="meta"><span>${it.close.toLocaleString()}원</span><span class="${cls(it.ret1)}">전일 ${sgn(it.ret1)}</span>${it.mcap?`<span>시총 ${won(it.mcap)}</span>`:''}${it.val!=null?`<span>전일 거래대금 ${won(it.val)}</span>`:''}${it.over_ret!=null?`<span class="${cls(it.over_ret)}">밤사이 ${sgn(it.over_ret)}</span>`:''}<span>${conf}</span></div>
       ${llm}<div class="bar"><i style="width:${Math.min(100,it.p*100*2)}%;background:${color}"></i></div>
-      <div class="det"><ul class="rs">${rs}</ul><div class="ev">${ev||'<div>최근 공시·뉴스 없음</div>'}</div></div>
+      <div class="det">${candle(it)}${flowsSvg(it.chart)}${modelLine(it)}${groupLine(it.groups)}<ul class="rs">${rs}</ul>${anGrid(it.analysis)}<div class="ev">${ev||'<div>최근 공시·뉴스 없음</div>'}</div></div>
     </div>`;}).join('');
+}
+function candle(it){
+  const c=it.chart; if(!c||!c.d||c.d.length<2) return '';
+  const W=760,H=300,PH=200,VH=70,pad={l:8,r:64,t:10};
+  const n=c.d.length, xw=(W-pad.l-pad.r)/n;
+  let hi=Math.max(...c.h.filter(x=>x!=null)), lo=Math.min(...c.l.filter(x=>x!=null));
+  if(it.up_limit) hi=Math.max(hi,it.up_limit);
+  const y=v=>pad.t+(hi-v)/(hi-lo||1)*PH, vmax=Math.max(...c.v.filter(x=>x!=null))||1;
+  let s=`<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">`;
+  // 가격 눈금
+  for(let i=0;i<=4;i++){const v=lo+(hi-lo)*i/4, yy=y(v); s+=`<line x1="${pad.l}" x2="${W-pad.r}" y1="${yy}" y2="${yy}" stroke="#262a33"/><text x="${W-pad.r+6}" y="${yy+5}" fill="#8b919c" font-size="13">${Math.round(v).toLocaleString()}</text>`;}
+  // 20일선
+  const ma=[]; for(let i=0;i<n;i++){ if(i<19){ma.push(null);continue;} let t=0; for(let j=i-19;j<=i;j++) t+=c.c[j]; ma.push(t/20); }
+  const pts=ma.map((m,i)=>m==null?null:`${pad.l+xw*(i+.5)},${y(m)}`).filter(Boolean);
+  if(pts.length>1) s+=`<polyline points="${pts.join(' ')}" fill="none" stroke="#e0b64d" stroke-width="1.5" opacity=".9"/>`;
+  for(let i=0;i<n;i++){
+    const o=c.o[i],h=c.h[i],l=c.l[i],cl=c.c[i]; if(o==null||cl==null) continue;
+    const prev=i?c.c[i-1]:o, r=prev?cl/prev-1:0, lim=r>=0.295;
+    const col=cl>=o?'#ff4d4d':'#4d8cff', x=pad.l+xw*(i+.5);
+    s+=`<line x1="${x}" x2="${x}" y1="${y(h)}" y2="${y(l)}" stroke="${col}" stroke-width="1"/>`;
+    const top=y(Math.max(o,cl)), bh=Math.max(1,Math.abs(y(o)-y(cl)));
+    s+=`<rect x="${x-xw*.35}" y="${top}" width="${xw*.7}" height="${bh}" fill="${col}"/>`;
+    if(lim) s+=`<text x="${x}" y="${y(h)-5}" fill="#ff4d4d" font-size="12" text-anchor="middle">상</text>`;
+    const vh=(c.v[i]||0)/vmax*VH; s+=`<rect x="${x-xw*.35}" y="${H-vh}" width="${xw*.7}" height="${vh}" fill="${col}" opacity=".45"/>`;
+  }
+  if(it.up_limit){const yy=y(it.up_limit); s+=`<line x1="${pad.l}" x2="${W-pad.r}" y1="${yy}" y2="${yy}" stroke="#ff4d4d" stroke-dasharray="4 4" opacity=".7"/><text x="${pad.l+4}" y="${yy-4}" fill="#ff4d4d" font-size="12">내일 상한가 ${it.up_limit.toLocaleString()}</text>`;}
+  // 날짜
+  [0,Math.floor(n/2),n-1].forEach(i=>{const d=c.d[i]; s+=`<text x="${pad.l+xw*(i+.5)}" y="${pad.t+PH+16}" fill="#8b919c" font-size="12" text-anchor="middle">${d.slice(4,6)}.${d.slice(6)}</text>`;});
+  return s+'</svg>';
+}
+function flowsSvg(c){
+  if(!c||!c.fd||c.fd.length<2) return '';
+  const W=760,H=110,pad={l:8,r:64,t:14}, n=c.fd.length, xw=(W-pad.l-pad.r)/n, ser=[['frgn','#e0b64d','외국인'],['inst','#7fd1ae','기관'],['indiv','#8b919c','개인']];
+  const all=ser.flatMap(([k])=>c[k]||[]).filter(x=>x!=null).map(Math.abs), m=Math.max(1,...all), mid=pad.t+(H-pad.t-18)/2, sc=(H-pad.t-18)/2/m;
+  let s=`<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg"><line x1="${pad.l}" x2="${W-pad.r}" y1="${mid}" y2="${mid}" stroke="#262a33"/>`;
+  ser.forEach(([k,col,nm],j)=>{ s+=`<text x="${pad.l+j*70}" y="11" fill="${col}" font-size="12">■ ${nm}</text>`; (c[k]||[]).forEach((v,i)=>{ if(v==null) return; const x=pad.l+xw*i+xw*(0.15+j*0.24), h=Math.abs(v)*sc; s+=`<rect x="${x}" y="${v>=0?mid-h:mid}" width="${xw*0.22}" height="${h}" fill="${col}"/>`; }); });
+  s+=`<text x="${W-pad.r+6}" y="${pad.t+6}" fill="#8b919c" font-size="12">+${m.toFixed(0)}억</text><text x="${W-pad.r+6}" y="${H-14}" fill="#8b919c" font-size="12">−${m.toFixed(0)}억</text>`;
+  s+=`<text x="${W-pad.r}" y="${H-2}" fill="#8b919c" font-size="12" text-anchor="end">최근 ${n}일 순매수(억원)</text>`;
+  return s+'</svg>';
+}
+function modelLine(it){
+  const parts=[];
+  if(it.hist_rate!=null) parts.push(`이 확률 구간의 과거 ${it.hist_n.toLocaleString()}건 중 상한가 마감 ${pf(it.hist_rate)}`);
+  if(it.hist_oc!=null) parts.push(`시가 매수 평균 <b class="${cls(it.hist_oc)}">${sgn(it.hist_oc)}</b>`);
+  if(it.hist_oc_win!=null) parts.push(`종가가 시가보다 높았던 비율 ${f(it.hist_oc_win,0)}`);
+  if(it.hist_unb!=null) parts.push(`시가가 이미 상한가라 못 산 비율 ${f(it.hist_unb,0)}`);
+  return parts.length?`<div class="mdl">${parts.join(' · ')}</div>`:'';
+}
+function groupLine(g){
+  if(!g||(!(g.industry||[]).length&&!(g.themes||[]).length)) return '';
+  return `<div class="tagline">${(g.industry||[]).map(x=>`<span>업종 ${x}</span>`).join('')}${(g.themes||[]).map(x=>`<span>${x}</span>`).join('')}</div>`;
+}
+function anGrid(a){
+  if(!a||!a.length) return '';
+  return `<div class="an">${a.map(s=>`<h4>${s.sec}</h4>`+s.items.map(([k,v])=>`<div><span>${k}</span><b>${v}</b></div>`).join('')).join('')}</div>`;
+}
+function svgOpen(W,H){return `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">`;}
+function monthlySvg(m){
+  if(!m.length) return '';
+  const W=760,H=190,pad={l:8,r:70,t:28,b:26}, n=m.length, xw=(W-pad.l-pad.r)/n, ph=H-pad.t-pad.b;
+  const rate=m.map(x=>x['p@5']!=null?x['p@5']:x['p@10']), top=Math.max(0.5,...rate), posmax=Math.max(1,...m.map(x=>x.pos));
+  let s=svgOpen(W,H)+`<text x="${pad.l}" y="16" fill="#8b919c" font-size="13">월별 상위5 적중률(막대)과 그달 상한가 발생 수(선)</text>`;
+  [0.25,0.5].forEach(v=>{if(v<=top){const yy=pad.t+ph*(1-v/top); s+=`<line x1="${pad.l}" x2="${W-pad.r}" y1="${yy}" y2="${yy}" stroke="#262a33"/><text x="${W-pad.r+6}" y="${yy+4}" fill="#8b919c" font-size="12">${v*100}%</text>`;}});
+  m.forEach((x,i)=>{const r=rate[i]||0, bh=ph*r/top, X=pad.l+xw*i; s+=`<rect x="${X+xw*.15}" y="${pad.t+ph-bh}" width="${xw*.7}" height="${bh}" fill="#ff4d4d" opacity=".8"/><text x="${X+xw/2}" y="${pad.t+ph-bh-4}" fill="#f2f3f5" font-size="12" text-anchor="middle">${Math.round(r*100)}%</text><text x="${X+xw/2}" y="${H-8}" fill="#8b919c" font-size="12" text-anchor="middle">${x.ym.slice(2,4)}.${x.ym.slice(4)}</text>`;});
+  s+=`<polyline fill="none" stroke="#e0b64d" stroke-width="2" points="${m.map((x,i)=>`${pad.l+xw*(i+.5)},${pad.t+ph*(1-x.pos/posmax)}`).join(' ')}"/>`;
+  s+=`<text x="${W-pad.r+6}" y="${pad.t+18}" fill="#e0b64d" font-size="12">발생 ${posmax}건</text>`;
+  return s+'</svg>';
+}
+function liveSvg(h){
+  if(h.length<2) return '';
+  const W=760,H=200,pad={l:8,r:70,t:28,b:26}, n=h.length, xw=(W-pad.l-pad.r)/n, ph=H-pad.t-pad.b;
+  let cum=0, cumn=0, eq=1; const rate=[], eqs=[];
+  h.forEach(x=>{cum+=x.up_hits; cumn+=Math.min(5,(x.up||[]).length)||5; rate.push(cum/cumn); const oc=x.up_mean_oc; if(oc!=null) eq*=1+oc-0.003; eqs.push(eq);});
+  const emax=Math.max(...eqs,1.0001), emin=Math.min(...eqs,1);
+  let s=svgOpen(W,H)+`<text x="${pad.l}" y="16" fill="#8b919c" font-size="13">실전 누적: 상위5 적중률(빨강, 왼쪽 눈금)과 매일 시가 매수·종가 매도 누적 수익(노랑, 오른쪽 눈금)</text>`;
+  [0.25,0.5].forEach(v=>{const yy=pad.t+ph*(1-v); s+=`<line x1="${pad.l}" x2="${W-pad.r}" y1="${yy}" y2="${yy}" stroke="#262a33"/><text x="${pad.l+2}" y="${yy-3}" fill="#8b919c" font-size="12">${v*100}%</text>`;});
+  h.forEach((x,i)=>{const bh=ph*Math.min(1,x.up_hits/5); s+=`<rect x="${pad.l+xw*i+xw*.2}" y="${pad.t+ph-bh}" width="${xw*.6}" height="${bh}" fill="#ff4d4d" opacity=".35"/>`;});
+  s+=`<polyline fill="none" stroke="#ff4d4d" stroke-width="2" points="${rate.map((r,i)=>`${pad.l+xw*(i+.5)},${pad.t+ph*(1-Math.min(1,r))}`).join(' ')}"/>`;
+  s+=`<polyline fill="none" stroke="#e0b64d" stroke-width="2" points="${eqs.map((e,i)=>`${pad.l+xw*(i+.5)},${pad.t+ph*(1-(e-emin)/(emax-emin||1))}`).join(' ')}"/>`;
+  s+=`<text x="${W-pad.r+6}" y="${pad.t+4}" fill="#e0b64d" font-size="12">${((emax-1)*100).toFixed(0)}%</text><text x="${W-pad.r+6}" y="${pad.t+ph+4}" fill="#e0b64d" font-size="12">${((emin-1)*100).toFixed(0)}%</text>`;
+  [0,n-1].forEach(i=>{const d=h[i].target_date; s+=`<text x="${pad.l+xw*(i+.5)}" y="${H-8}" fill="#8b919c" font-size="12" text-anchor="middle">${d.slice(4,6)}.${d.slice(6)}</text>`;});
+  return s+'</svg>';
+}
+function perfSvg(pf){
+  const info=`<div class="ev" style="margin-bottom:10px">매일 아침 새 거래일 데이터를 더해 모델을 처음부터 다시 학습합니다. 학습 데이터가 늘고 변수가 바뀔 때마다 검증 적중률이 어떻게 움직이는지 기록합니다. 실전 적중률은 실제 예측이 쌓이는 대로 함께 표시됩니다.</div>`;
+  if(pf.length<2) return info+`<table><tr><th>학습 기준일</th><th>학습 데이터</th><th>변수</th><th>검증 상위5 적중률</th><th>AP</th><th>AUC</th><th>시가 매수 평균</th></tr>${pf.map(x=>`<tr><td>${x.as_of}</td><td>${(x.train_rows||0).toLocaleString()}행</td><td>${x.n_features}</td><td>${f(x['p@5']||0,1)}</td><td>${(x.ap||0).toFixed(3)}</td><td>${(x.auc||0).toFixed(3)}</td><td class="${cls(x['oc@5'])}">${x['oc@5']==null?'':sgn(x['oc@5'])}</td></tr>`).join('')}</table><div class="ev" style="margin-top:8px">학습이 두 번 이상 쌓이면 여기에 추이 그래프가 그려집니다.</div>`;
+  const W=760,H=200,pad={l:8,r:70,t:28,b:26}, n=pf.length, xw=(W-pad.l-pad.r)/Math.max(1,n-1), ph=H-pad.t-pad.b;
+  const p5=pf.map(x=>x['p@5']||0), lv=pf.map(x=>x.live_rate), top=Math.max(0.5,...p5,...lv.filter(x=>x!=null));
+  let s=svgOpen(W,H)+`<text x="${pad.l}" y="16" fill="#8b919c" font-size="13">학습일별 검증 상위5 적중률(빨강)과 실전 누적 적중률(노랑)</text>`;
+  [0.25,0.5].forEach(v=>{if(v<=top){const yy=pad.t+ph*(1-v/top); s+=`<line x1="${pad.l}" x2="${W-pad.r}" y1="${yy}" y2="${yy}" stroke="#262a33"/><text x="${W-pad.r+6}" y="${yy+4}" fill="#8b919c" font-size="12">${v*100}%</text>`;}});
+  s+=`<polyline fill="none" stroke="#ff4d4d" stroke-width="2" points="${p5.map((r,i)=>`${pad.l+xw*i},${pad.t+ph*(1-r/top)}`).join(' ')}"/>`;
+  const lp=lv.map((r,i)=>r==null?null:`${pad.l+xw*i},${pad.t+ph*(1-r/top)}`).filter(Boolean); if(lp.length>1) s+=`<polyline fill="none" stroke="#e0b64d" stroke-width="2" points="${lp.join(' ')}"/>`;
+  [0,n-1].forEach(i=>{const d=pf[i].as_of; s+=`<text x="${pad.l+xw*i}" y="${H-8}" fill="#8b919c" font-size="12" text-anchor="${i?'end':'start'}">${d.slice(4,6)}.${d.slice(6)}</text>`;});
+  const last=pf[n-1], first=pf[0];
+  return info+s+'</svg>'+`<div class="ev">학습 데이터 ${(first.train_rows||0).toLocaleString()}행 → ${(last.train_rows||0).toLocaleString()}행 · 변수 ${first.n_features} → ${last.n_features}개 · 검증 적중률 ${f(first['p@5']||0,1)} → ${f(last['p@5']||0,1)}</div>`;
 }
 function stats(d){
   const su=d.stats.y_up, g=document.getElementById('stat');
@@ -133,8 +237,12 @@ function stats(d){
   document.getElementById('h-up').innerHTML=bt(su);
   const imp=(t)=>Object.entries(d.importance[t]).slice(0,25).map(([k,v])=>`<tr><td>${k}</td><td>${Math.round(v).toLocaleString()}</td></tr>`).join('');
   document.getElementById('h-imp').innerHTML=`<table><tr><th>변수</th><th>기여</th></tr>${imp('y_up')}</table>`;
-  const h=(d.history||[]).filter(x=>x.graded).slice(-20).reverse();
-  document.getElementById('h-rec').innerHTML=h.length?`<table><tr><th>날짜</th><th>실제 상한가</th><th>상위5 적중</th><th>장중 터치</th><th>상위5 평균 등락</th><th>시가→종가</th><th>상한가 후보 결과</th></tr>${h.map(x=>`<tr><td>${x.target_date.slice(4,6)}.${x.target_date.slice(6)}</td><td>${x.actual_up_count}</td><td class="${x.up_hits?'hit':''}">${x.up_hits}</td><td>${x.up_touch}</td><td class="${cls(x.up_mean_ret)}">${x.up_mean_ret==null?'':sgn(x.up_mean_ret)}</td><td class="${cls(x.up_mean_oc)}">${x.up_mean_oc==null?'':sgn(x.up_mean_oc)}</td><td style="white-space:normal;text-align:left">${x.up.map(u=>`<span class="${u.hit?'hit':''}">${u.name} ${u.ret==null?'':sgn(u.ret)}</span>`).join(' · ')}</td></tr>`).join('')}</table>`:'<div class="ev">첫 예측입니다. 다음 날부터 실제 결과를 여기서 채점합니다.</div>';
+  document.getElementById('perfsub').textContent=`매일 아침 전날까지의 데이터로 처음부터 다시 학습 · 학습 데이터 ${(d.train_rows||0).toLocaleString()}행(${(d.train_from||'').slice(0,4)}년~) · 변수 ${d.n_features}개 · 검증은 최근 ${su.days}거래일을 매달 그 이전 데이터로만 학습해 예측한 결과`;
+  document.getElementById('monthly').innerHTML=monthlySvg(su.monthly||[]);
+  document.getElementById('h-perf').innerHTML=perfSvg(d.perf||[]);
+  const hall=(d.history||[]).filter(x=>x.graded);
+  const h=hall.slice(-20).reverse();
+  document.getElementById('h-rec').innerHTML=liveSvg(hall)+(h.length?`<table><tr><th>날짜</th><th>실제 상한가</th><th>상위5 적중</th><th>장중 터치</th><th>상위5 평균 등락</th><th>시가→종가</th><th>상한가 후보 결과</th></tr>${h.map(x=>`<tr><td>${x.target_date.slice(4,6)}.${x.target_date.slice(6)}</td><td>${x.actual_up_count}</td><td class="${x.up_hits?'hit':''}">${x.up_hits}</td><td>${x.up_touch}</td><td class="${cls(x.up_mean_ret)}">${x.up_mean_ret==null?'':sgn(x.up_mean_ret)}</td><td class="${cls(x.up_mean_oc)}">${x.up_mean_oc==null?'':sgn(x.up_mean_oc)}</td><td style="white-space:normal;text-align:left">${x.up.map(u=>`<span class="${u.hit?'hit':''}">${u.name} ${u.ret==null?'':sgn(u.ret)}</span>`).join(' · ')}</td></tr>`).join('')}</table>`:'<div class="ev">첫 예측입니다. 다음 거래일부터 실제 결과를 여기서 채점하고, 날짜가 쌓이면 적중률 추이를 그래프로 보여 줍니다.</div>');
   document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('on'));b.classList.add('on');document.querySelectorAll('.hist').forEach(x=>x.classList.remove('on'));document.getElementById(b.dataset.t).classList.add('on');});
 }
 main().catch(e=>{document.getElementById('sub').textContent='아직 데이터가 없습니다. '+e;});

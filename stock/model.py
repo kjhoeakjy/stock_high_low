@@ -134,9 +134,15 @@ def summarize(oos: pd.DataFrame, target: str) -> dict:
         res[f"oc_mean_ex_unbuyable@{k}"] = float(oc[(sign * gap) < 0.295].mean()) if ((sign * gap) < 0.295).any() else None
     bins = [0, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5, 1.01]
     cut = pd.cut(p, bins, right=False)
-    tab = pd.DataFrame({"y": y, "b": cut}).groupby("b", observed=True)["y"].agg(["mean", "size"])
-    res["buckets"] = [{"lo": float(i.left), "hi": float(i.right), "rate": float(r["mean"]), "n": int(r["size"])}
-                      for i, r in tab.iterrows()]
+    gap_all, oc_all = oos["y_gap"].astype(float).to_numpy(), oos["y_oc"].astype(float).to_numpy()
+    tab = pd.DataFrame({"y": y, "b": cut, "gap": gap_all, "oc": oc_all})
+    res["buckets"] = []
+    for i, g in tab.groupby("b", observed=True):
+        buyable = g[g["gap"] < 0.295]
+        res["buckets"].append({"lo": float(i.left), "hi": float(i.right), "rate": float(g["y"].mean()), "n": int(len(g)),
+                               "unb": float((g["gap"] >= 0.295).mean()),
+                               "oc": float(buyable["oc"].mean()) if len(buyable) else None,
+                               "oc_win": float((buyable["oc"] > 0).mean()) if len(buyable) else None})
     oos = oos.assign(ym=oos["date"].str[:6])
     res["monthly"] = []
     for m, g in oos.groupby("ym"):

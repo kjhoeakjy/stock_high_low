@@ -16,6 +16,10 @@ def main(argv):
         months, rounds = 3, 200
     prices, flows, universe, groups, market, disc, news = features.load_all()
     panel = features.build(prices, flows, universe, groups, market, disclosures=disc, news=news)
+    days = sorted(prices["date"].unique())
+    cut = days[-70] if len(days) > 70 else days[0]
+    recent_p = prices[prices["date"] >= cut].copy()
+    recent_f = flows[flows["date"] >= cut].copy() if flows is not None and len(flows) else None
     del prices, flows
     print(f"[run] panel {panel.shape} in {time.time()-t0:.0f}s; up={int((panel.y_up==1).sum())}")
     if "--save-panel" in argv:
@@ -30,7 +34,7 @@ def main(argv):
     res = model.run(p, months=months, rounds=rounds)
     del p
     gc.collect()
-    report.write(last, actual, res, universe, market, n_train, train_from)
+    report.write(last, actual, res, universe, market, n_train, train_from, recent_p=recent_p, recent_f=recent_f, groups=groups)
     print(f"[run] done {time.time()-t0:.0f}s")
 
 

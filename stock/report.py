@@ -120,8 +120,76 @@ def reasons(model, cols, row: pd.Series, k: int = 6) -> list[dict]:
 def bucket(p: float, stats: dict) -> dict:
     for b in stats.get("buckets", []):
         if b["lo"] <= p < b["hi"]:
-            return {"rate": b["rate"], "n": b["n"]}
-    return {"rate": None, "n": 0}
+            return {"rate": b["rate"], "n": b["n"], "oc": b.get("oc"), "unb": b.get("unb"), "oc_win": b.get("oc_win")}
+    return {"rate": None, "n": 0, "oc": None, "unb": None, "oc_win": None}
+
+
+# 상세 분석 패널: 구역별로 보여 줄 특징
+ANALYSIS = [
+    ("가격", ["ret1", "gap", "clv", "ret5", "ret20", "ret60", "hi20", "hi60", "hi250", "lo250", "ma20", "ma60", "vol20"]),
+    ("거래", ["logval", "val20", "vr5", "vr20", "vr_prev", "turn", "turn5", "vz20"]),
+    ("상한가 이력", ["up_streak", "one_bar_up", "touch_up", "n_up5", "n_up20", "n_up60", "n_touch20", "since_up", "n_big5", "n_big20", "updays5"]),
+    ("경보 조건", ["alert3", "alert5", "alert15", "heat40", "turn2_40", "penny"]),
+    ("수급", ["frgn1", "frgn5", "frgn20", "inst1", "inst5", "inst20", "indiv5", "frate", "frate_d5", "frate_d20"]),
+    ("업종·테마", ["ind_ret", "ind_rel", "ind_up", "ind_up5", "ind_big", "thm_ret", "thm_up", "thm_up5", "thm_big"]),
+    ("시장", ["m_nup", "m_nup5", "m_nup20", "m_big", "m_up_ratio", "KOSPI_r1", "KOSDAQ_r1", "KOSDAQ_r5", "KOSDAQ_ma20"]),
+]
+
+
+def analysis(r: pd.Series) -> list[dict]:
+    out = []
+    for sec, keys in ANALYSIS:
+        items = []
+        for k in keys:
+            if k not in r.index or k not in LABELS:
+                continue
+            v = r[k]
+            try:
+                fv = float(v)
+            except (TypeError, ValueError):
+                continue
+            if not np.isfinite(fv):
+                continue
+            label, fmt = LABELS[k]
+            if fmt is None:
+                if float(v) <= 0:
+                    continue
+                items.append([label, "예"])
+            else:
+                try:
+                    items.append([label, fmt(float(v))])
+                except Exception:  # noqa: BLE001
+                    continue
+        if items:
+            out.append({"sec": sec, "items": items})
+    return out
+
+
+def _chart(code: str, last_date: str, recent_p: pd.DataFrame | None, recent_f: pd.DataFrame | None) -> dict:
+    out = {}
+    if recent_p is not None:
+        g = recent_p[(recent_p["code"] == code) & (recent_p["date"] <= last_date)].sort_values("date").tail(60)
+        if len(g):
+            out["d"] = g["date"].tolist()
+            for k in ("open", "high", "low", "close", "volume"):
+                out[k[0]] = [int(x) if pd.notna(x) else None for x in g[k]]
+    if recent_f is not None:
+        f = recent_f[(recent_f["code"] == code) & (recent_f["date"] <= last_date)].sort_values("date").tail(20)
+        if len(f) and "c" in out:
+            px = dict(zip(out["d"], out["c"]))
+            out["fd"] = f["date"].tolist()
+            for k in ("frgn", "inst", "indiv"):
+                # 주 수 × 종가 → 억원
+                out[k] = [round(float(v) * (px.get(d) or 0) / 1e8, 1) if pd.notna(v) else None for v, d in zip(f[k], f["date"])]
+    return out
+
+
+def _groups_of(code: str, groups: dict | None) -> dict:
+    if not groups:
+        return {}
+    ind = [g["name"] for g in groups.get("industry", []) if code in g.get("codes", [])]
+    thm = [g["name"] for g in groups.get("theme", []) if code in g.get("codes", [])]
+    return {"industry": ind[:1], "themes": thm[:6]}
 
 
 def _evidence(code: str, name: str, dart: list[dict]) -> dict:
@@ -151,7 +219,7 @@ def _load_json(name):
         return None
 
 
-def score_today(today: pd.DataFrame, res: dict, universe: list[dict]) -> dict:
+def score_today(today: pd.DataFrame, res: dict, universe: list[dict], recent_p=None, recent_f=None, groups=None) -> dict:
     cols = res["features"]
     last_date = today["date"].max()
     today = today.copy()
@@ -183,7 +251,9 @@ def score_today(today: pd.DataFrame, res: dict, universe: list[dict]) -> dict:
                 "mcap": float(r["mcap"]) if pd.notna(r["mcap"]) else None,
                 "val": float(np.expm1(r["logval"])) if pd.notna(r.get("logval")) else None,
                 "p": round(float(r[f"p_{key}"]), 4), "raw": round(float(r[f"raw_{key}"]), 4),
-                "hist_rate": b["rate"], "hist_n": b["n"],
+                "hist_rate": b["rate"], "hist_n": b["n"], "hist_oc": b.get("oc"), "hist_unb": b.get("unb"), "hist_oc_win": b.get("oc_win"),
+                "analysis": analysis(r), "chart": _chart(r["code"], last_date, recent_p, recent_f),
+                "groups": _groups_of(r["code"], groups),
                 "halted": r["code"] in halted, "pref": bool(r.get("is_pref", 0)),
                 "alert": (status.get(r["code"]) or {}).get("alert"), "managed": (status.get(r["code"]) or {}).get("managed"),
                 "over_ret": (over.get(r["code"]) or {}).get("over_ret"), "over_status": (over.get(r["code"]) or {}).get("over_status"),
@@ -255,10 +325,32 @@ def next_trading_day(as_of: str) -> str:
     return d.strftime("%Y%m%d")
 
 
+def _append_perf(doc: dict, st: dict) -> list[dict]:
+    """학습 때마다 모델 성능 기록을 perf.json에 누적(같은 기준일은 덮어씀) → 성능 추이 그래프."""
+    path = OUT / "perf.json"
+    try:
+        perf = json.loads(path.read_text())
+    except Exception:  # noqa: BLE001
+        perf = []
+    graded = [h for h in doc.get("history", []) if h.get("graded")]
+    live_n = sum(len(h.get("up", [])) for h in graded)
+    live_hits = sum(h.get("up_hits", 0) for h in graded)
+    rec = {"as_of": doc["as_of"], "train_rows": doc.get("train_rows"), "n_features": doc.get("n_features"),
+           "train_from": doc.get("train_from"), "pos": st.get("pos"), "days": st.get("days"),
+           "p@5": st.get("p@5"), "p@10": st.get("p@10"), "ap": st.get("ap"), "auc": st.get("auc"),
+           "base_rate": st.get("base_rate"), "oc@5": st.get("oc_mean_ex_unbuyable@5"), "unb@5": st.get("unbuyable@5"),
+           "live_days": len(graded), "live_n": live_n, "live_hits": live_hits,
+           "live_rate": (live_hits / live_n) if live_n else None}
+    perf = [x for x in perf if x.get("as_of") != rec["as_of"]] + [rec]
+    perf.sort(key=lambda x: x["as_of"])
+    path.write_text(json.dumps(perf, ensure_ascii=False))
+    return perf
+
+
 def write(last: pd.DataFrame, actual: pd.DataFrame, res: dict, universe: list[dict], market: pd.DataFrame,
-          n_train: int = 0, train_from: str = ""):
+          n_train: int = 0, train_from: str = "", recent_p=None, recent_f=None, groups=None):
     """last: 마지막 거래일 행(특징 포함). actual: 전 기간 code,date,ret1,hi_ret,lo_ret."""
-    today, scored = score_today(last, res, universe)
+    today, scored = score_today(last, res, universe, recent_p, recent_f, groups)
     target_date = next_trading_day(today["as_of"])
     stats = {k: {kk: vv for kk, vv in v["stats"].items()} for k, v in res["targets"].items()}
     imp = {k: v["importance"] for k, v in res["targets"].items()}
@@ -280,8 +372,10 @@ def write(last: pd.DataFrame, actual: pd.DataFrame, res: dict, universe: list[di
         "train_rows": n_train, "train_from": train_from,
     }
     (OUT / "history").mkdir(exist_ok=True)
-    (OUT / "history" / f"{target_date}.json").write_text(json.dumps(doc, ensure_ascii=False))
+    hist_doc = {**doc, "up": [{k: v for k, v in it.items() if k not in ("chart", "analysis", "groups", "evidence", "llm")} for it in doc["up"]]}
+    (OUT / "history" / f"{target_date}.json").write_text(json.dumps(hist_doc, ensure_ascii=False))
     doc["history"] = grade_history(actual)
+    doc["perf"] = _append_perf(doc, stats["y_up"])
     (OUT / "latest.json").write_text(json.dumps(doc, ensure_ascii=False))
     # 전 종목 점수(검색용, 가벼운 버전)
     slim = scored[["code", "close", "ret1", "p_up"]].copy()
