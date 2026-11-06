@@ -163,7 +163,9 @@ def walk_forward(p: Panel, target: str, months: int = 12, rounds: int = ROUNDS, 
     if reused:
         print(f"[wf {target}] 재사용 {len(reused)}개월({reused[0]}~{reused[-1]}), 새로 계산 {len(test_months) - len(reused)}개월", flush=True)
     oos = pd.concat(outs, ignore_index=True)
-    oos.to_parquet(cache_f, index=False)
+    # 캐시 저장: 이번에 다루지 않은 달(예: 36개월 검증이 남긴 과거 달)은 그대로 보존해 일일 실행(6개월)과 장기 검증(36개월)이 캐시를 공유
+    keep = cached[~cached["ym"].isin(test_months)].drop(columns=["ym"]) if cached is not None else None
+    (pd.concat([keep, oos], ignore_index=True) if keep is not None and len(keep) else oos).to_parquet(cache_f, index=False)
     key_f.write_text(key)
     return oos
 
@@ -349,7 +351,7 @@ def summarize_horizons(oos: pd.DataFrame, target: str, horizons=HORIZONS) -> dic
     out = {}
     for h in horizons:
         n = h * 21
-        if len(dates) >= n * 0.95:
+        if len(dates) >= n * 0.9:  # 월말 부분 달·휴장 감안(36개월 ≈ 715거래일)
             sub = oos[oos["date"] >= dates[-min(n, len(dates))]]
             out[str(h)] = summarize(sub, target, trade_days=days)
             out[str(h)]["months"] = h

@@ -41,6 +41,17 @@ jobs:
           ls stock/data | head -30
       - name: 검증
         run: python -m stock.backtest --months=${{ inputs.months || '36' }}
+      - name: 검증 캐시 저장(stock-data)
+        run: |
+          rm -rf /tmp/sd && mkdir -p /tmp/sd && cd /tmp/sd && git init -q -b stock-data
+          git config user.name github-actions && git config user.email actions@github.com
+          for i in 1 2 3; do
+            git fetch -q --depth=1 "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" stock-data && git reset -q --hard FETCH_HEAD
+            cp "$GITHUB_WORKSPACE"/stock/data/oos_y_oc10.parquet "$GITHUB_WORKSPACE"/stock/data/oos_y_oc10.key . && git add -A
+            git diff --cached --quiet && break
+            git commit -qm "oos cache $(date -u +%Y%m%dT%H%M)" && git push -q "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" HEAD:stock-data && break
+            sleep 10
+          done
       - name: 결과 커밋
         run: |
           git config user.name github-actions
