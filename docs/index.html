@@ -124,6 +124,7 @@ input:focus{outline:none;border-color:#3a414d}
   <div id="view-live" style="display:none">
     <div class="sub" id="livesub">데이터 조회 중</div>
     <div class="mk" id="livemk"></div>
+    <section id="acct-sec" style="display:none"><h2>계좌·체결</h2><div class="h2sub" id="acctsub"></div><div id="live-acct" class="tw"></div></section>
     <section><h2>추천 종목</h2><div class="h2sub" id="msum"></div><div id="live-morning" class="tw"></div></section>
     <section><h2>현재 상한가</h2><div id="live-limit" class="tw"></div></section>
     <section><h2>10% 이상 상승</h2><div class="h2sub" id="lockline"></div><div id="live-near" class="tw"></div></section>
@@ -175,6 +176,7 @@ async function loadLive(){
   LIVE=d; renderRec(); renderPlan();
   const fmtd=s=>`${s.slice(0,4)}.${s.slice(4,6)}.${s.slice(6,8)}`;
   document.getElementById('livesub').textContent=`${d.at} · 30초 갱신 · 진입·청산 ${d.trades&&d.trades.basis==='호가'?'호가 기준':'시세 기준 추정'}${d.closed?' · 장 마감':''}${d.guard?` · 자동 매매 ${d.guard.halted?'정지('+(d.guard.halt_reason||'')+')':{off:'꺼짐',observe:'관찰',live:'실행'}[d.guard.mode]||d.guard.mode}${d.guard.equity?' · 평가액 '+d.guard.equity.toLocaleString()+'원':''}${d.guard.pending&&Object.keys(d.guard.pending).length?' · 매도 대기 '+Object.keys(d.guard.pending).length+'종목':''}`:''}${d.target_date&&d.date!==d.target_date?' · 장전 후보 '+fmtd(d.target_date)+' 기준':''}`;
+  renderAcct(d.guard);
   const mk=document.getElementById('livemk');mk.innerHTML='';
   if(d.market.KOSPI)mk.insertAdjacentHTML('beforeend',`<div><b>코스피</b><span class="${cls(d.market.KOSPI.r1)}">${sgn(d.market.KOSPI.r1)}</span></div>`);
   if(d.market.KOSDAQ)mk.insertAdjacentHTML('beforeend',`<div><b>코스닥</b><span class="${cls(d.market.KOSDAQ.r1)}">${sgn(d.market.KOSDAQ.r1)}</span></div>`);
@@ -195,6 +197,23 @@ async function loadLive(){
   document.getElementById('live-limit').innerHTML=tbl(d.limit,false);
   document.getElementById('live-near').innerHTML=tbl(d.near.slice(0,30),false);
   document.getElementById('lockline').textContent=`장중 상한가 도달 종목의 상한가 마감 비율 ${Math.round(d.lock_rate.all*100)}% · 장전 후보 ${Math.round(d.lock_rate.morning*100)}%`;
+}
+function renderAcct(g){
+  const sec=document.getElementById('acct-sec'); if(!g||!(g.account||g.holdings&&g.holdings.length||g.fills&&g.fills.length||g.pending&&Object.keys(g.pending).length)){sec.style.display='none';return;}
+  sec.style.display='';
+  const a=g.account||{}, w=v=>v==null?'-':Math.round(v).toLocaleString();
+  const modeTxt=g.halted?'정지('+(g.halt_reason||'')+')':{off:'꺼짐',observe:'관찰',live:'실행'}[g.mode]||g.mode;
+  const dayr=(g.equity&&g.day_start)?g.equity/g.day_start-1:null;
+  document.getElementById('acctsub').innerHTML=`자동 매매 ${modeTxt} · 평가액 ${w(g.equity)}원${dayr!=null?` (당일 <b class="${cls(dayr)}">${sgn(dayr)}</b>)`:''} · 현금 ${w(a.cash)}원 · D+2 ${w(a.d2_cash)}원${a.today_buy_amt?` · 당일 매수 ${w(a.today_buy_amt)}원`:''}${a.today_sell_amt?` · 매도 ${w(a.today_sell_amt)}원`:''}${g.equity_at?` · ${g.equity_at} 조회`:''}`;
+  let h='';
+  const hold=g.holdings||[];
+  h+=`<table class="lv"><tr><th class="l">보유</th><th>수량</th><th>평단</th><th>현재가</th><th>평가</th><th>손익</th><th>상태</th></tr>${hold.length?hold.map(x=>{const pend=g.pending&&g.pending[x.code];const r=x.avg?x.price/x.avg-1:null;return `<tr><td class="l"><b>${x.name||x.code}</b></td><td>${x.qty}${x.sellable!=null&&x.sellable!==x.qty?`<br><small>주문 중 ${x.qty-x.sellable}</small>`:''}</td><td>${w(x.avg)}</td><td>${w(x.price)}</td><td>${w(x.eval)}</td><td class="${cls(r)}">${r==null?'-':sgn(r)}${x.pnl!=null?`<br><small>${(x.pnl>=0?'+':'')+w(x.pnl)}원</small>`:''}</td><td>${pend?`<span class="st lim">매도 대기 ${pend.tries||0}회${pend.last_err?' · '+pend.last_err.slice(0,30):''}</span>`:'<span class="st">보유</span>'}</td></tr>`;}).join(''):'<tr><td class="l" colspan="7"><small>보유 없음</small></td></tr>'}</table>`;
+  const fl=g.fills||[];
+  if(fl.length)h+=`<table class="lv" style="margin-top:14px"><tr><th class="l">당일 주문</th><th>구분</th><th>주문</th><th>체결</th><th>취소</th><th>미체결</th><th>체결 평단</th></tr>${fl.map(f=>`<tr><td class="l"><b>${f.name||f.code}</b></td><td>${f.side==='buy'?'매수':'매도'}</td><td>${f.ordered}</td><td class="${f.filled<f.ordered?'neg':''}"><b>${f.filled}</b></td><td>${f.cancelled||'-'}</td><td class="${f.open?'neg':''}">${f.open||'-'}</td><td>${f.avg?w(f.avg):'-'}</td></tr>`).join('')}</table>`;
+  const pendOnly=Object.entries(g.pending||{}).filter(([c])=>!hold.some(x=>x.code===c));
+  if(pendOnly.length)h+=`<div class="ev" style="margin-top:10px">${pendOnly.map(([c,p])=>`<div>매도 대기 ${p.name||c} ${p.qty}주 · ${p.why||''} · 시도 ${p.tries||0}회</div>`).join('')}</div>`;
+  if(g.log&&g.log.length)h+=`<div class="ev" style="margin-top:12px">${g.log.slice(-6).map(l=>`<div>${l}</div>`).join('')}</div>`;
+  document.getElementById('live-acct').innerHTML=h;
 }
 function setMode(m,btn){MODE=m;btn.parentNode.querySelectorAll('button').forEach(x=>x.classList.remove('on'));btn.classList.add('on');if(DATA){render('up',DATA.up,'var(--up)');}}
 const pf=(v)=>v<0.01?(v*100).toFixed(2)+'%':v<0.1?(v*100).toFixed(1)+'%':(v*100).toFixed(0)+'%';
@@ -301,7 +320,8 @@ function renderRecord(){
     const buys=d?d.buys.map((x,i)=>{const h=hm[x.name], res=h?(h.tnet!=null?`진입·청산 ${sgn(h.tnet)}`:h.oc!=null?`시가→종가 ${sgn(h.oc)}`:''):'';return `<div class="buy"><b>${x.name}</b> <input type="number" value="${x.n}" onchange="editBuy('${date}',${i},'n',this.value)">주 × <input type="number" value="${x.price}" onchange="editBuy('${date}',${i},'price',this.value)">원 = ${(x.n*x.price).toLocaleString()}${res?` <small class="${cls(h.tnet!=null?h.tnet:h.oc)}">${res}</small>`:''}</div>`;}).join(''):'<small style="color:var(--mut)">매수 내역 없음</small>';
     return `<tr><td class="l"><b>${date}</b>${d&&d.auto?'<br><small style="color:var(--mut)">증권사 체결</small>':d?`<br><small style="color:var(--mut);cursor:pointer" onclick="delTrade('${date}')">매수 내역 삭제</small>`:''}</td><td class="l" style="white-space:normal">${buys}</td><td>${cap!=null?cap.toLocaleString():'-'}</td><td>${amt!=null?amt.toLocaleString():'<small style="color:var(--mut)">미입력</small>'}${amt!=null?`<br><small style="color:var(--mut);cursor:pointer" onclick="delBalance('${date}')">삭제</small>`:''}</td><td class="big ${cls(r)}">${r==null?'-':sgn(r)}${pnl!=null?`<br><small style="color:var(--mut)">${(pnl>=0?'+':'')+pnl.toLocaleString()}원</small>`:''}</td><td class="${cls(cum)}">${cum==null?'-':sgn(cum)}</td></tr>`;});
   const last=prevBal, cum=(last!=null&&first)?last/first-1:null;
-  document.getElementById('recsub').innerHTML=`시작 ${first!=null?first.toLocaleString()+'원':'-'} · 현재 ${last!=null?last.toLocaleString()+'원':'-'} · 누적 <b class="${cls(cum)}">${cum==null?'-':sgn(cum)}</b> · 거래일 ${n} · 수익일 ${wins}`;
+  const P=(DATA&&DATA.account&&DATA.account.pnl_days)||[], pr=P.filter(x=>x.buy_amt||x.sell_amt), psum=pr.reduce((a,x)=>a+(x.realized||0),0);
+  document.getElementById('recsub').innerHTML=`시작 ${first!=null?first.toLocaleString()+'원':'-'} · 현재 ${last!=null?last.toLocaleString()+'원':'-'} · 누적 <b class="${cls(cum)}">${cum==null?'-':sgn(cum)}</b> · 거래일 ${n} · 수익일 ${wins}${pr.length?` · 증권사 실현손익 ${pr.length}일 <b class="${cls(psum)}">${(psum>=0?'+':'')+psum.toLocaleString()}원</b>(수수료·세금 차감)`:''}`;
   el.innerHTML=`<table class="lv"><tr><th class="l">날짜</th><th class="l">매수 내역</th><th>투자 금액</th><th>마감 잔고</th><th>일 수익</th><th>누적</th></tr>${rows.reverse().join('')}</table>`;
 }
 function render(id,items,color){

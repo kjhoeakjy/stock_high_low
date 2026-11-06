@@ -9,6 +9,8 @@
 
   python -m stock.kis check          # 연결 점검: 잔고·주문가능금액·삼성전자 현재가(읽기만)
   python -m stock.kis price 005930
+  python -m stock.kis account        # 계좌 종합(잔고·보유·주문가능·오늘 주문/체결·미체결·기간 손익·실현손익)
+  python -m stock.kis orders 20261106 | fills 20261106 | pnl 20261001 20261106
 """
 from __future__ import annotations
 
@@ -26,7 +28,23 @@ TR = {
     "balance": ("TTTC8434R", "VTTC8434R"), "psbl": ("TTTC8908R", "VTTC8908R"),
     "buy": ("TTTC0012U", "VTTC0012U"), "sell": ("TTTC0011U", "VTTC0011U"),
     "ccld": ("TTTC8001R", "VTTC8001R"), "cancel": ("TTTC0013U", "VTTC0013U"), "pending": ("TTTC8036R", "TTTC8036R"),
+    # 실전 전용(모의 미지원): 실현손익 포함 잔고, 기간별 손익(일별 합산), 기간별 종목 매매손익
+    "balance_rlz": ("TTTC8494R", "TTTC8494R"), "pnl_daily": ("TTTC8708R", "TTTC8708R"), "pnl_stock": ("TTTC8715R", "TTTC8715R"),
 }
+
+
+def _i(v) -> int:
+    try:
+        return int(float(v))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _f(v) -> float:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 class KIS:
@@ -120,11 +138,49 @@ class KIS:
              "FUND_STTL_ICLD_YN": "N", "FNCG_AMT_AUTO_RDPT_YN": "N", "PRCS_DVSN": "00", "CTX_AREA_FK100": "", "CTX_AREA_NK100": ""}
         j = self._get("/uapi/domestic-stock/v1/trading/inquire-balance", p, self._tr("balance"))
         o2 = (j.get("output2") or [{}])[0]
-        holds = [{"code": h["pdno"], "name": h["prdt_name"], "qty": int(h["hldg_qty"]), "avg": float(h["pchs_avg_pric"]),
-                  "price": int(h["prpr"]), "eval": int(h["evlu_amt"]), "pnl": int(h["evlu_pfls_amt"])}
-                 for h in j.get("output1") or [] if int(h.get("hldg_qty") or 0) > 0]
-        return {"cash": int(o2.get("dnca_tot_amt") or 0), "d2_cash": int(o2.get("prvs_rcdl_excc_amt") or 0),
-                "total": int(o2.get("tot_evlu_amt") or 0), "stock_eval": int(o2.get("scts_evlu_amt") or 0), "holdings": holds}
+        holds = [{"code": h["pdno"], "name": h["prdt_name"], "qty": _i(h["hldg_qty"]), "sellable": _i(h.get("ord_psbl_qty")),
+                  "avg": _f(h["pchs_avg_pric"]), "cost": _i(h.get("pchs_amt")), "price": _i(h["prpr"]), "eval": _i(h["evlu_amt"]),
+                  "pnl": _i(h["evlu_pfls_amt"]), "pnl_rt": _f(h.get("evlu_pfls_rt")),
+                  "today_buy": _i(h.get("thdt_buyqty")), "today_sell": _i(h.get("thdt_sll_qty"))}
+                 for h in j.get("output1") or [] if _i(h.get("hldg_qty")) > 0]
+        return {"cash": _i(o2.get("dnca_tot_amt")), "d2_cash": _i(o2.get("prvs_rcdl_excc_amt")), "d1_cash": _i(o2.get("nxdy_excc_amt")),
+                "total": _i(o2.get("tot_evlu_amt")), "stock_eval": _i(o2.get("scts_evlu_amt")), "net_asset": _i(o2.get("nass_amt")),
+                "cost_sum": _i(o2.get("pchs_amt_smtl_amt")), "pnl_sum": _i(o2.get("evlu_pfls_smtl_amt")), "asset_chg": _i(o2.get("asst_icdc_amt")),
+                "today_buy_amt": _i(o2.get("thdt_buy_amt")), "today_sell_amt": _i(o2.get("thdt_sll_amt")), "today_fee": _i(o2.get("thdt_tlex_amt")),
+                "holdings": holds}
+
+    def balance_rlz(self) -> dict:
+        """실현손익 포함 잔고(실전 전용): 보유 종목별 실현손익과 계좌 누적 실현손익."""
+        p = {"CANO": self.cano, "ACNT_PRDT_CD": self.prdt, "AFHR_FLPR_YN": "N", "OFL_YN": "", "INQR_DVSN": "00", "UNPR_DVSN": "01",
+             "FUND_STTL_ICLD_YN": "N", "FNCG_AMT_AUTO_RDPT_YN": "N", "PRCS_DVSN": "00", "COST_ICLD_YN": "Y", "CTX_AREA_FK100": "", "CTX_AREA_NK100": ""}
+        j = self._get("/uapi/domestic-stock/v1/trading/inquire-balance-rlz-pl", p, self._tr("balance_rlz"))
+        o2 = (j.get("output2") or [{}])[0]
+        return {"realized": _i(o2.get("rlzt_pfls")), "realized_rt": _f(o2.get("rlzt_erng_rt")), "total_pnl": _i(o2.get("evlu_pfls_smtl_amt")),
+                "total_rt": _f(o2.get("tot_pftrt")), "cost_sum": _i(o2.get("pchs_amt_smtl_amt")), "eval_sum": _i(o2.get("evlu_amt_smtl_amt")),
+                "holdings": [{"code": h["pdno"], "name": h["prdt_name"], "qty": _i(h["hldg_qty"]), "avg": _f(h["pchs_avg_pric"]), "price": _i(h["prpr"]),
+                              "pnl": _i(h["evlu_pfls_amt"]), "pnl_rt": _f(h.get("evlu_pfls_rt")), "realized": _i(h.get("rlzt_pfls"))}
+                             for h in j.get("output1") or [] if _i(h.get("hldg_qty")) > 0]}
+
+    def pnl_daily(self, start: str, end: str) -> dict:
+        """기간별 손익 일별 합산(실전 전용). start/end YYYYMMDD. days: [{date, buy_amt, sell_amt, realized, fee, tax, rt}], total."""
+        p = {"CANO": self.cano, "ACNT_PRDT_CD": self.prdt, "INQR_STRT_DT": start, "INQR_END_DT": end, "SORT_DVSN": "00", "PDNO": "",
+             "INQR_DVSN": "00", "CBLC_DVSN": "00", "CTX_AREA_FK100": "", "CTX_AREA_NK100": ""}
+        j = self._get("/uapi/domestic-stock/v1/trading/inquire-period-profit", p, self._tr("pnl_daily"))
+        o2 = (j.get("output2") or [{}])
+        o2 = o2[0] if isinstance(o2, list) else o2
+        return {"days": [{"date": r.get("trad_dt"), "buy_amt": _i(r.get("buy_amt")), "sell_amt": _i(r.get("sll_amt")), "realized": _i(r.get("rlzt_pfls")),
+                          "fee": _i(r.get("fee")), "tax": _i(r.get("tl_tax")), "rt": _f(r.get("pfls_rt"))} for r in j.get("output1") or []],
+                "total": {"buy_amt": _i(o2.get("buy_amt_smtl")), "sell_amt": _i(o2.get("sll_amt_smtl")), "realized": _i(o2.get("rlzt_pfls_smtl")),
+                          "fee": _i(o2.get("fee_smtl")), "tax": _i(o2.get("tl_tax_smtl")), "rt": _f(o2.get("pfls_rt"))}}
+
+    def pnl_stock(self, start: str, end: str) -> list[dict]:
+        """기간별 종목 매매 손익(실전 전용): 날짜·종목별 매수·매도 금액과 실현손익."""
+        p = {"CANO": self.cano, "ACNT_PRDT_CD": self.prdt, "INQR_STRT_DT": start, "INQR_END_DT": end, "SORT_DVSN": "00", "PDNO": "",
+             "INQR_DVSN": "00", "CBLC_DVSN": "00", "CTX_AREA_FK100": "", "CTX_AREA_NK100": ""}
+        j = self._get("/uapi/domestic-stock/v1/trading/inquire-period-trade-profit", p, self._tr("pnl_stock"))
+        return [{"date": r.get("trad_dt"), "code": r.get("pdno"), "name": r.get("prdt_name"), "buy_qty": _i(r.get("buy_qty")), "sell_qty": _i(r.get("sll_qty")),
+                 "buy_amt": _i(r.get("buy_amt")), "sell_amt": _i(r.get("sll_amt")), "realized": _i(r.get("rlzt_pfls")), "rt": _f(r.get("pfls_rt")),
+                 "fee": _i(r.get("fee")), "tax": _i(r.get("tl_tax"))} for r in j.get("output1") or []]
 
     def buying_power(self, code: str = "005930", price: int = 0) -> int:
         p = {"CANO": self.cano, "ACNT_PRDT_CD": self.prdt, "PDNO": code, "ORD_UNPR": str(price), "ORD_DVSN": "01" if not price else "00",
@@ -158,15 +214,57 @@ class KIS:
         j = self._post("/uapi/domestic-stock/v1/trading/order-rvsecncl", body, self._tr("cancel"))
         return {"ok": True, "msg": j.get("msg1")}
 
+    def orders(self, day: str, filled_only: bool = False) -> dict:
+        """당일 주문·체결 내역(YYYYMMDD). 주문별 주문수량·체결수량·잔량·취소 여부. 연속 조회 포함.
+        반환 {"orders": [...], "total": {buy_amt, sell_amt, buy_qty, sell_qty}}"""
+        out, fk, nk, total = [], "", "", {}
+        for _ in range(10):
+            p = {"CANO": self.cano, "ACNT_PRDT_CD": self.prdt, "INQR_STRT_DT": day, "INQR_END_DT": day, "SLL_BUY_DVSN_CD": "00",
+                 "INQR_DVSN": "00", "PDNO": "", "CCLD_DVSN": "01" if filled_only else "00", "ORD_GNO_BRNO": "", "ODNO": "", "INQR_DVSN_3": "00", "INQR_DVSN_1": "",
+                 "CTX_AREA_FK100": fk, "CTX_AREA_NK100": nk}
+            j = self._get("/uapi/domestic-stock/v1/trading/inquire-daily-ccld", p, self._tr("ccld"))
+            for r in j.get("output1") or []:
+                out.append({"code": r["pdno"], "name": r["prdt_name"], "side": "buy" if r["sll_buy_dvsn_cd"] == "02" else "sell",
+                            "ord_qty": _i(r.get("ord_qty")), "qty": _i(r.get("tot_ccld_qty")), "rmn_qty": _i(r.get("rmn_qty")),
+                            "ord_price": _i(r.get("ord_unpr")), "price": _f(r.get("avg_prvs")), "amount": _i(r.get("tot_ccld_amt")),
+                            "kind": r.get("ord_dvsn_name"), "cancelled": (r.get("cncl_yn") or "") == "Y", "time": r.get("ord_tmd"),
+                            "order_no": r.get("odno"), "org_no": r.get("ord_gno_brno"), "orig_no": r.get("orgn_odno")})
+            o2 = j.get("output2") or {}
+            if isinstance(o2, list):
+                o2 = o2[0] if o2 else {}
+            total = {"buy_amt": _i(o2.get("tot_ccld_amt")) if not total else total.get("buy_amt"), "buy_qty": _i(o2.get("tot_ccld_qty"))}
+            fk, nk = j.get("ctx_area_fk100", "").strip(), j.get("ctx_area_nk100", "").strip()
+            if not nk or (j.get("tr_cont") or "").strip() not in ("F", "M"):
+                break
+        tb = sum(o["amount"] for o in out if o["side"] == "buy"); ts = sum(o["amount"] for o in out if o["side"] == "sell")
+        return {"orders": out, "total": {"buy_amt": tb, "sell_amt": ts, "buy_qty": sum(o["qty"] for o in out if o["side"] == "buy"),
+                                         "sell_qty": sum(o["qty"] for o in out if o["side"] == "sell")}}
+
     def fills(self, day: str) -> list[dict]:
-        """당일 체결 내역(YYYYMMDD)."""
-        p = {"CANO": self.cano, "ACNT_PRDT_CD": self.prdt, "INQR_STRT_DT": day, "INQR_END_DT": day, "SLL_BUY_DVSN_CD": "00",
-             "INQR_DVSN": "00", "PDNO": "", "CCLD_DVSN": "01", "ORD_GNO_BRNO": "", "ODNO": "", "INQR_DVSN_3": "00", "INQR_DVSN_1": "",
-             "CTX_AREA_FK100": "", "CTX_AREA_NK100": ""}
-        j = self._get("/uapi/domestic-stock/v1/trading/inquire-daily-ccld", p, self._tr("ccld"))
-        return [{"code": r["pdno"], "name": r["prdt_name"], "side": "buy" if r["sll_buy_dvsn_cd"] == "02" else "sell",
-                 "qty": int(r["tot_ccld_qty"] or 0), "price": float(r["avg_prvs"] or 0), "amount": int(r["tot_ccld_amt"] or 0),
-                 "time": r.get("ord_tmd"), "order_no": r.get("odno")} for r in j.get("output1") or []]
+        """당일 체결 내역(체결 수량 > 0인 주문만)."""
+        return [o for o in self.orders(day)["orders"] if o["qty"] > 0]
+
+    def order_status(self, day: str, order_no: str) -> dict | None:
+        """주문번호 하나의 체결 상태(ord_qty·qty·rmn_qty·cancelled)."""
+        return next((o for o in self.orders(day)["orders"] if o.get("order_no") == order_no), None)
+
+    def account_full(self, days: int = 30) -> dict:
+        """계좌 종합: 잔고·보유·주문가능금액·오늘 주문/체결·최근 기간 일별 손익·종목별 매매손익·실현손익 잔고.
+        실전 전용 조회는 실패해도 나머지는 반환(모의투자 대비)."""
+        kst = time.time() + 9 * 3600
+        today = time.strftime("%Y%m%d", time.gmtime(kst))
+        start = time.strftime("%Y%m%d", time.gmtime(kst - 86400 * days))
+        out = self.balance()
+        out["at"], out["mode"], out["errors"] = time.strftime("%Y-%m-%d %H:%M", time.gmtime(kst)), self.mode, {}
+        for name, fn in (("buying_power", lambda: self.buying_power()), ("today", lambda: self.orders(today)), ("pending", self.pending),
+                         ("pnl_daily", lambda: self.pnl_daily(start, today)), ("pnl_stock", lambda: self.pnl_stock(start, today)),
+                         ("realized", self.balance_rlz)):
+            try:
+                out[name] = fn()
+            except Exception as e:  # noqa: BLE001
+                out["errors"][name] = str(e)[:160]
+            time.sleep(0.25)
+        return out
 
 
 def main(argv: list[str]) -> None:
@@ -182,9 +280,9 @@ def main(argv: list[str]) -> None:
         print(f"[kis] buying_power={k.buying_power():,}")
     elif cmd == "snapshot":  # 아침 재학습용 계좌 스냅샷(현금·평가·보유) → stock/data/kis_account.json
         from stock.common import DATA
-        b = k.balance()
-        b["at"] = time.strftime("%Y-%m-%d %H:%M", time.gmtime(time.time() + 9 * 3600))
-        b["mode"] = k.mode
+        b = k.account_full(days=35)
+        for name, err in (b.get("errors") or {}).items():
+            print(f"[kis] {name} 조회 실패: {err}")
         # 최근 7일 체결 내역(날짜별) → 화면 '내 기록'에 자동 반영
         fills = {}
         for i in range(1, 8):
@@ -207,7 +305,14 @@ def main(argv: list[str]) -> None:
         print(k.price(argv[1]))
         print(k.orderbook(argv[1]))
     elif cmd == "fills":
-        print(k.fills(argv[1]))
+        print(json.dumps(k.fills(argv[1]), ensure_ascii=False, indent=1))
+    elif cmd == "orders":
+        print(json.dumps(k.orders(argv[1]), ensure_ascii=False, indent=1))
+    elif cmd == "account":
+        print(json.dumps(k.account_full(), ensure_ascii=False, indent=1))
+    elif cmd == "pnl":
+        print(json.dumps(k.pnl_daily(argv[1], argv[2]), ensure_ascii=False, indent=1))
+        print(json.dumps(k.pnl_stock(argv[1], argv[2]), ensure_ascii=False, indent=1))
     else:
         print(__doc__)
 

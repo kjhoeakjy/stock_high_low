@@ -380,7 +380,9 @@ def _account() -> dict | None:
         a = json.loads(p.read_text())
         return {"cash": a.get("cash"), "total": a.get("total"), "stock_eval": a.get("stock_eval"), "at": a.get("at"), "mode": a.get("mode"),
                 "holdings": [{"name": h["name"], "qty": h["qty"], "avg": h["avg"], "price": h["price"]} for h in a.get("holdings", [])],
-                "fills": a.get("fills") or {}}
+                "fills": a.get("fills") or {},
+                "pnl_days": ((a.get("pnl_daily") or {}).get("days") or [])[-40:],
+                "realized": (a.get("realized") or {}).get("realized"), "buying_power": a.get("buying_power")}
     except Exception:  # noqa: BLE001
         return None
 
