@@ -42,8 +42,9 @@ python stock/radar.py
 
 ## 접근 제한
 
-- 저장소 Secrets에 `PAGE_PASSWORD`를 두면 발행 데이터(`docs/latest.json`, `scores.json`, `perf.json`, `history/`, `live` 브랜치)가 AES-256-GCM(`.enc`)으로 저장되고 평문은 삭제됨. 키는 PBKDF2-SHA256 60만 회로 유도.
-- 화면은 비밀번호 입력 후 브라우저에서 복호화. 비밀번호 없이는 암호문만 노출. 비밀번호 변경은 Secret 수정 후 재실행(기존 `.enc`는 새 비밀번호로 재발행).
+- 저장소 Secrets에 `PAGE_PASSWORD`를 두면 발행 데이터(`docs/latest.json`, `scores.json`, `perf.json`, `history/`, `live` 브랜치)가 AES-256-GCM(`.enc`)으로 저장되고 평문은 삭제됨. 
+- 키 유도는 PBKDF2-SHA256 100만 회. 암호문은 공개되므로 방어력은 비밀번호 길이에 달림. 16자 이상 무작위(영문 대소문자·숫자·기호 혼합) 권장. 사전 단어·생일·반복 문자 금지.
+- 화면은 비밀번호 입력 후 브라우저에서 복호화. 비밀번호 없이는 암호문만 노출. '이 기기에서 유지'는 본인 기기에서만 사용. 비밀번호 변경은 Secret 수정 후 재실행(기존 `.enc`는 새 비밀번호로 재발행).
 - 코드와 수집 시장 데이터(`stock-data`)는 공개 상태. 비공개 저장소의 Pages는 유료 요금제 필요.
 
 ## 라벨과 한계

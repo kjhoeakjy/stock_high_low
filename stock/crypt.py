@@ -18,7 +18,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
-ITER = 600_000
+ITER = 1_000_000  # PBKDF2 반복(브라우저 1~3초). 무차별 대입 방어의 핵심은 비밀번호 길이(16자 이상 무작위 권장)
 SALT = b"stock_high_low/v1"  # 고정 솔트: 브라우저가 키를 한 번만 유도하도록(비밀번호는 사용자 지정)
 _KEYS: dict[str, bytes] = {}
 
