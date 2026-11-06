@@ -25,7 +25,7 @@ HOST = {"real": "https://openapi.koreainvestment.com:9443", "paper": "https://op
 TR = {
     "balance": ("TTTC8434R", "VTTC8434R"), "psbl": ("TTTC8908R", "VTTC8908R"),
     "buy": ("TTTC0012U", "VTTC0012U"), "sell": ("TTTC0011U", "VTTC0011U"),
-    "ccld": ("TTTC8001R", "VTTC8001R"), "cancel": ("TTTC0013U", "VTTC0013U"),
+    "ccld": ("TTTC8001R", "VTTC8001R"), "cancel": ("TTTC0013U", "VTTC0013U"), "pending": ("TTTC8036R", "TTTC8036R"),
 }
 
 
@@ -142,6 +142,21 @@ class KIS:
         j = self._post("/uapi/domestic-stock/v1/trading/order-cash", body, self._tr(side))
         o = j.get("output") or {}
         return {"ok": True, "order_no": o.get("ODNO"), "org_no": o.get("KRX_FWDG_ORD_ORGNO"), "time": o.get("ORD_TMD"), "msg": j.get("msg1")}
+
+    def pending(self) -> list[dict]:
+        """미체결 주문(정정·취소 가능 수량 기준). 모의투자는 미지원."""
+        p = {"CANO": self.cano, "ACNT_PRDT_CD": self.prdt, "CTX_AREA_FK100": "", "CTX_AREA_NK100": "", "INQR_DVSN_1": "0", "INQR_DVSN_2": "0"}
+        j = self._get("/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl", p, self._tr("pending"))
+        return [{"code": r["pdno"], "name": r.get("prdt_name"), "side": "buy" if r["sll_buy_dvsn_cd"] == "02" else "sell",
+                 "qty": int(r.get("psbl_qty") or 0), "price": int(float(r.get("ord_unpr") or 0)), "order_no": r["odno"],
+                 "org_no": r.get("ord_gno_brno"), "time": r.get("ord_tmd")} for r in j.get("output") or [] if int(r.get("psbl_qty") or 0) > 0]
+
+    def cancel(self, order_no: str, org_no: str, qty: int = 0) -> dict:
+        """미체결 취소(qty=0이면 잔량 전부)."""
+        body = {"CANO": self.cano, "ACNT_PRDT_CD": self.prdt, "KRX_FWDG_ORD_ORGNO": org_no or "", "ORGN_ODNO": order_no,
+                "ORD_DVSN": "00", "RVSE_CNCL_DVSN_CD": "02", "ORD_QTY": str(int(qty)), "ORD_UNPR": "0", "QTY_ALL_ORD_YN": "Y" if not qty else "N"}
+        j = self._post("/uapi/domestic-stock/v1/trading/order-rvsecncl", body, self._tr("cancel"))
+        return {"ok": True, "msg": j.get("msg1")}
 
     def fills(self, day: str) -> list[dict]:
         """당일 체결 내역(YYYYMMDD)."""

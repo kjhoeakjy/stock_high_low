@@ -46,6 +46,7 @@ jobs:
           KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
           KIS_ACCOUNT: ${{ secrets.KIS_ACCOUNT }}
           KIS_MODE: real
+          TRADE_MODE: ${{ vars.TRADE_MODE || 'observe' }}
         run: |
           push() {
             cd live

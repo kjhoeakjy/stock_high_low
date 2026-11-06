@@ -281,9 +281,19 @@ def main():
     near = [x for x in market_rows if x["status"] != "상한가" and x["ret"] >= 0.10][:60]
 
     trades = trade_log(day, hm, morning_rows, latest.get("trade_today"), hms=t.strftime("%H%M%S"))
+    # 리스크 가드(자동 매매 모드에 따라 주문 실행 또는 관찰 기록)
+    guard_state = None
+    try:
+        from stock import guard
+        exits = {c: it["exit_why"] for c, it in trades["items"].items() if it.get("exit") and it.get("exit_at") == hm}
+        cash = ((latest.get("account") or {}).get("cash")) or guard.START_CAPITAL
+        plan = guard.make_plan(morning, cash) if latest.get("trade_today") is not False else []
+        guard_state = guard.cycle(day, t.strftime("%H%M%S"), plan, exits)
+    except Exception as e:  # noqa: BLE001
+        print(f"[live] 가드 오류 · {e}")
     doc = {
         "at": t.strftime("%Y-%m-%d %H:%M"), "date": day, "as_of": latest.get("as_of"), "target_date": latest.get("target_date"),
-        "trades": trades,
+        "trades": trades, "guard": guard_state,
         "market": idx, "n_limit": len(at_limit), "n_up10": sum(1 for x in market_rows if x["ret"] >= 0.10),
         "n_total": n_total, "up_ratio": (n_up / n_total) if n_total else None,
         "morning": morning_rows, "limit": at_limit, "near": near,

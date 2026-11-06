@@ -174,7 +174,7 @@ async function loadLive(){
   catch(e){document.getElementById('livesub').textContent='장중 데이터 없음 · 거래일 09:00 이후 갱신';return;}
   LIVE=d; renderRec(); renderPlan();
   const fmtd=s=>`${s.slice(0,4)}.${s.slice(4,6)}.${s.slice(6,8)}`;
-  document.getElementById('livesub').textContent=`${d.at} · 30초 갱신 · 진입·청산 ${d.trades&&d.trades.basis==='호가'?'호가 기준':'시세 기준 추정'}${d.closed?' · 장 마감':''}${d.target_date&&d.date!==d.target_date?' · 장전 후보 '+fmtd(d.target_date)+' 기준':''}`;
+  document.getElementById('livesub').textContent=`${d.at} · 30초 갱신 · 진입·청산 ${d.trades&&d.trades.basis==='호가'?'호가 기준':'시세 기준 추정'}${d.closed?' · 장 마감':''}${d.guard?` · 자동 매매 ${d.guard.halted?'정지('+(d.guard.halt_reason||'')+')':{off:'꺼짐',observe:'관찰',live:'실행'}[d.guard.mode]||d.guard.mode}${d.guard.equity?' · 평가액 '+d.guard.equity.toLocaleString()+'원':''}${d.guard.pending&&Object.keys(d.guard.pending).length?' · 매도 대기 '+Object.keys(d.guard.pending).length+'종목':''}`:''}${d.target_date&&d.date!==d.target_date?' · 장전 후보 '+fmtd(d.target_date)+' 기준':''}`;
   const mk=document.getElementById('livemk');mk.innerHTML='';
   if(d.market.KOSPI)mk.insertAdjacentHTML('beforeend',`<div><b>코스피</b><span class="${cls(d.market.KOSPI.r1)}">${sgn(d.market.KOSPI.r1)}</span></div>`);
   if(d.market.KOSDAQ)mk.insertAdjacentHTML('beforeend',`<div><b>코스닥</b><span class="${cls(d.market.KOSDAQ.r1)}">${sgn(d.market.KOSDAQ.r1)}</span></div>`);
