@@ -17,7 +17,7 @@ import pandas as pd
 from sklearn.metrics import average_precision_score
 
 from stock import features
-from stock.model import PARAMS, ROUNDS, TRAIN_START, Panel, _weights
+from stock.model import PARAMS, ROUNDS, TRAIN_START, Panel, _weights, sim_capital
 
 NEW_FEATS = ("r5max", "r20q80", "ret1_sq", "n_top20_20", "n_bot20_20", "n_tb20_20", "vz_small", "indiv_act", "since_alert")
 
@@ -209,6 +209,10 @@ def evaluate(oos: pd.DataFrame, k: int = 5) -> dict:
         daily = buy.groupby("date")["y_oc"].mean() - 0.003
         res[f"dayavg@{k}{name}"] = float(daily.mean())
         res[f"worst@{k}{name}"] = float(daily.min())
+        if "close" in d.columns:
+            sim = sim_capital(d, k)
+            res[f"sim@{k}{name}"] = float(sim["cum"])
+            res[f"simmdd@{k}{name}"] = float(sim["mdd"])
     t3 = oos.sort_values(["date", "p"], ascending=[True, False]).groupby("date").head(3)
     res["p@3"] = float(t3["y_up"].mean())
     return res
@@ -273,7 +277,7 @@ def run(name: str, p: Panel, months: int, seed: int = 0) -> dict:
             pr = _pred(cfg, y_all, tr)
         if cfg.get("rules"):
             pr = apply_rules(p, ti, pr)
-        outs.append(pd.DataFrame({"date": p.date[ti], "y_up": p.y["y_up"][ti], "p": pr, "y_gap": p.y_gap[ti], "y_oc": p.y_oc[ti],
+        outs.append(pd.DataFrame({"date": p.date[ti], "y_up": p.y["y_up"][ti], "p": pr, "y_gap": p.y_gap[ti], "y_oc": p.y_oc[ti], "close": p.close[ti],
                                   "pref": p.X[ti, i_pref], "val": np.expm1(p.X[ti, i_val])}))
         gc.collect()
         print(f"[exp {name}] {m} done {time.time()-t0:.0f}s", flush=True)

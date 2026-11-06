@@ -384,6 +384,8 @@ def _append_perf(doc: dict, st: dict) -> list[dict]:
            "up10@5": st.get("up10@5"), "oc10@5": st.get("oc10@5"), "up5@5": st.get("up5@5"), "oc5@5": st.get("oc5@5"),
            "up@5": st.get("up@5"), "net@5": st.get("net@5"),
            "net_trade_day": (st.get("net") or {}).get("trade_day"), "net_trade_frac": (st.get("net") or {}).get("trade_frac"),
+           "sim_final": (st.get("sim") or {}).get("final"), "sim_cum": (st.get("sim") or {}).get("cum"), "sim_mdd": (st.get("sim") or {}).get("mdd"),
+           "sim_policy_cum": (st.get("sim_policy") or {}).get("cum"),
            "live_days": len(graded), "live_n": live_n, "live_hits": live_hits,
            "live_rate": (live_hits / live_n) if live_n else None, "live_10": live_10,
            "live_rate10": (live_10 / live_n) if live_n else None,
