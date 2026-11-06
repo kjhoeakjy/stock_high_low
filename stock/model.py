@@ -8,6 +8,7 @@ import gc
 import json
 import time
 import warnings
+from pathlib import Path
 
 import lightgbm as lgb
 import numpy as np
@@ -100,18 +101,47 @@ def precision_at_k(d: pd.DataFrame, score: str, target: str, k: int) -> tuple[fl
     return float(hits.sum() / max(1, n.sum())), float(hits.mean())
 
 
+WF_CACHE_VERSION = 1  # 검증 결과 재사용 캐시 버전(과거 자료가 소급 변경되면 올려서 전체 재계산)
+
+
+def _wf_key(p: Panel, target: str, rounds: int, n_seeds: int) -> str:
+    """캐시 유효성 키: 모델·특징 코드, 변수 목록, 대상, 설정이 모두 같을 때만 지난달 결과를 재사용."""
+    import hashlib
+    h = hashlib.sha1()
+    for f in ("model.py", "features.py", "text_features.py"):
+        fp = Path(__file__).with_name(f)
+        if fp.exists():
+            h.update(fp.read_bytes())
+    h.update("|".join(p.cols).encode())
+    h.update(f"{target}|{rounds}|{n_seeds}|{TRAIN_START}|{WF_CACHE_VERSION}".encode())
+    return h.hexdigest()
+
+
 def walk_forward(p: Panel, target: str, months: int = 12, rounds: int = ROUNDS, n_seeds: int | None = None) -> pd.DataFrame:
-    """월 단위 워크포워드: 각 달은 그 이전 데이터로만 학습한 모델(운영과 같은 시드 수 앙상블)로 예측."""
+    """월 단위 워크포워드: 각 달은 그 이전 데이터로만 학습한 모델(운영과 같은 시드 수 앙상블)로 예측.
+    완료된 달의 결과는 stock/data/oos_<target>.parquet에 저장해 코드·변수가 같으면 다음 실행에서 재사용(이번 달만 계산)."""
     n_seeds = n_seeds or WF_SEEDS.get(target, 1)
     y = p.y[target]
     valid = y >= 0
     test_months = sorted(set(p.ym[valid]))[-months:]
-    outs = []
+    key = _wf_key(p, target, rounds, n_seeds)
+    cache_f, key_f = DATA / f"oos_{target}.parquet", DATA / f"oos_{target}.key"
+    cached = None
+    if cache_f.exists() and key_f.exists() and key_f.read_text().strip() == key:
+        cached = pd.read_parquet(cache_f)
+        cached = cached.assign(ym=cached["date"].astype(str).str[:6])
+    outs, reused = [], []
     for m in test_months:
         tr = valid & (p.ym < m) & (p.date >= TRAIN_START)
         te = valid & (p.ym == m)
         if te.sum() == 0 or y[tr].sum() < 50:
             continue
+        if cached is not None:
+            c = cached[cached["ym"] == m]
+            if len(c) == int(te.sum()):  # 그달 행이 전부 있으면(완료된 달) 재사용
+                outs.append(c.drop(columns=["ym"]))
+                reused.append(m)
+                continue
         # 엠바고: 학습 마지막 거래일의 라벨은 테스트 달과 겹치므로 제외
         tr &= p.date < p.date[tr].max()
         t0 = time.time()
@@ -128,7 +158,12 @@ def walk_forward(p: Panel, target: str, months: int = 12, rounds: int = ROUNDS, 
               f"pos={int(y[ti].sum())} ap={average_precision_score(y[ti], pr):.4f} {time.time()-t0:.0f}s", flush=True)
         del mdl
         gc.collect()
-    return pd.concat(outs, ignore_index=True)
+    if reused:
+        print(f"[wf {target}] 재사용 {len(reused)}개월({reused[0]}~{reused[-1]}), 새로 계산 {len(test_months) - len(reused)}개월", flush=True)
+    oos = pd.concat(outs, ignore_index=True)
+    oos.to_parquet(cache_f, index=False)
+    key_f.write_text(key)
+    return oos
 
 
 COST = 0.0053  # 왕복 거래비용 가정: 거래세 0.20% + 수수료 0.03% + 체결 미끄러짐 0.30%(매수·매도 합계)
@@ -359,7 +394,6 @@ def run(df, months: int = 12, rounds: int = ROUNDS) -> dict:
         imp = pd.Series(mdl.feature_importance("gain"), index=p.cols).sort_values(ascending=False)
         result["targets"][target] = {"model": mdl, "iso": iso, "oos": oos, "stats": stats,
                                      "importance": imp.head(40).to_dict()}
-        oos.to_parquet(DATA / f"oos_{target}.parquet", index=False)
         models[0].save_model(str(DATA / f"model_{target}.txt"))
         gc.collect()
     return result

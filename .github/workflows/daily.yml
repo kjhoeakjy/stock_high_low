@@ -66,6 +66,9 @@ jobs:
           # 장중 기록(진입·청산)을 채점에 사용
           if git fetch -q --depth=1 origin live 2>/dev/null; then mkdir -p stock/data/live_trades; git --work-tree=stock/data/live_trades checkout -q FETCH_HEAD -- trades 2>/dev/null && mv stock/data/live_trades/trades/* stock/data/live_trades/ 2>/dev/null; git reset -q; fi
           ls stock/data/live_trades 2>/dev/null | tail -3
+          # 지난 실행의 검증 결과(완료된 달)를 재사용: 코드·변수가 같으면 이번 달만 새로 계산
+          if git fetch -q --depth=1 origin stock-data 2>/dev/null; then for t in y_up y_oc10 y_lock; do git --work-tree=stock/data checkout -q FETCH_HEAD -- oos_$t.parquet oos_$t.key 2>/dev/null || true; done; git reset -q; fi
+          ls -la stock/data/oos_* 2>/dev/null
           python -m stock.run ${{ inputs.fast && '--fast' || '' }}
       - name: 데이터 브랜치 갱신
         run: |
