@@ -9,6 +9,8 @@
   5. 매수 보호: 매도1호가가 전일 종가 대비 +20% 이상이면 매수 생략(상한가 잠김 위험), 호가 잔량·전일 거래대금 1% 한도로 수량 제한, 미체결 매수는 60초 뒤 취소.
   6. 시스템 이상: 시세·계좌 조회 연속 실패, 러너 지각(09:20 이후 시작)이면 당일 매수 금지. 조회 불능 상태에서 보유가 있으면 청산 시도.
   7. 비상 정지: TRADE_MODE 변수(off/observe/live) 또는 `python -m stock.guard halt`로 즉시 정지·청산.
+  9. 기준 자금 추적: 날이 바뀔 때 D+2 예수금 변화(밤사이에는 거래가 없으므로 입출금만 반영)를 기준 자금(capital)에 더해
+     원금 보호선(50%)을 입금·출금에 맞춰 갱신. 수동: python -m stock.guard capital 1500000
   8. 체결 확인: 주문 접수가 아니라 실제 체결로 판단. 매수는 당일 주문·체결 조회로 종목별 체결 수량·평단을 기록하고(미체결은 취소),
      매도는 보유 수량 0 확인 시에만 완료 처리. 정지 상태에서도 매도 대기 종목의 청산 확인은 계속한다.
 
@@ -35,7 +37,7 @@ ADV_CAP = 0.01         # 종목당 전일 거래대금 1%
 BUY_WINDOW = ("090030", "092000")
 EXIT_AT = "1515"
 CANCEL_AFTER = 60      # 미체결 매수 취소(초)
-LIVE = Path(sys.argv[1]) if len(sys.argv) > 1 and not sys.argv[1].startswith("-") and sys.argv[1] not in ("status", "halt", "resume", "liquidate", "eod") else OUT.parent / "live"
+LIVE = Path(sys.argv[1]) if len(sys.argv) > 1 and not sys.argv[1].startswith("-") and sys.argv[1] not in ("status", "halt", "resume", "liquidate", "eod", "capital") else OUT.parent / "live"
 STATE = LIVE / "guard.json"
 _K = {}
 
@@ -194,10 +196,31 @@ def halt(st: dict, reason: str) -> None:
     liquidate(st, f"정지 청산({reason})", live=(os.environ.get("TRADE_MODE") or "").lower() == "live")
 
 
+def capital(st: dict) -> int:
+    return int(st.get("capital") or START_CAPITAL)
+
+
+def track_deposits(st: dict, eq: dict) -> None:
+    """날이 바뀐 첫 조회에서 전날 마지막 D+2 예수금과 비교해 입출금을 감지하고 기준 자금에 반영."""
+    raw = eq.get("raw") or {}
+    d2 = raw.get("d2_cash")
+    if d2 is None:
+        return
+    prev = st.get("eod") or {}
+    today = (st.get("day") or {}).get("date")
+    if prev.get("date") and prev.get("date") != today and prev.get("d2_cash") is not None and not st.get("day", {}).get("deposit_checked"):
+        delta = int(d2) - int(prev["d2_cash"])
+        st["day"]["deposit_checked"] = True
+        if abs(delta) >= 10_000:
+            st["capital"] = capital(st) + delta
+            note(st, f"입출금 감지 {delta:+,}원 → 기준 자금 {capital(st):,}원(보호선 {int(capital(st) * HALT_EQUITY):,}원)")
+    st["eod"] = {"date": today, "d2_cash": int(d2), "total": eq["total"]}
+
+
 def check_limits(st: dict, eq: dict) -> None:
     """원금 보호선·일일 손실 한도."""
-    if eq["total"] <= START_CAPITAL * HALT_EQUITY and not st.get("halted"):
-        halt(st, f"평가액 {eq['total']:,}원 ≤ 시작 자금의 {int(HALT_EQUITY*100)}%")
+    if eq["total"] <= capital(st) * HALT_EQUITY and not st.get("halted"):
+        halt(st, f"평가액 {eq['total']:,}원 ≤ 기준 자금 {capital(st):,}원의 {int(HALT_EQUITY*100)}%")
         return
     d = st.get("day") or {}
     if d.get("start_equity") and eq["total"] / d["start_equity"] - 1 <= -DAY_LOSS and not d.get("no_buy"):
@@ -362,6 +385,7 @@ def cycle(day: str, hms: str, plan: list[dict], exits: dict[str, str]) -> dict:
             st["equity"], st["equity_at"] = eq["total"], now_kst().strftime("%H:%M:%S")
             st["holdings"] = [{k: h.get(k) for k in ("code", "name", "qty", "sellable", "avg", "price", "eval", "pnl", "pnl_rt")} for h in eq["holdings"]]
             st["account"] = {k: eq["raw"].get(k) for k in ("cash", "d1_cash", "d2_cash", "total", "stock_eval", "today_buy_amt", "today_sell_amt", "today_fee", "pnl_sum")}
+            track_deposits(st, eq)
             if live:
                 check_limits(st, eq)
                 if hms >= "090000" and not d.get("carry_cleared"):
@@ -403,12 +427,20 @@ def state_view(st: dict) -> dict:
             "day_start": d.get("start_equity"), "no_buy": d.get("no_buy"), "no_buy_reason": d.get("no_buy_reason"),
             "pending": st.get("pending", {}), "fills": d.get("fills") or [], "fill_total": d.get("fill_total"), "sold": d.get("sold") or [],
             "buy_placed": bool(d.get("bought")), "buy_confirmed": bool(d.get("buy_confirmed")), "eod_done": bool(d.get("eod_done")),
-            "holdings": st.get("holdings") or [], "account": st.get("account"), "log": st.get("log", [])[-10:]}
+            "holdings": st.get("holdings") or [], "account": st.get("account"), "capital": capital(st), "log": st.get("log", [])[-10:]}
 
 
 def main(argv):
-    cmd = next((a for a in argv if a in ("status", "halt", "resume", "liquidate", "eod")), "status")
+    cmd = next((a for a in argv if a in ("status", "halt", "resume", "liquidate", "eod", "capital")), "status")
     st = load()
+    if cmd == "capital":
+        val = next((int(a) for a in argv if a.isdigit()), None)
+        if val:
+            st["capital"] = val
+            note(st, f"기준 자금 수동 설정 {val:,}원")
+        print(f"[guard] 기준 자금 {capital(st):,}원 · 보호선 {int(capital(st) * HALT_EQUITY):,}원")
+        save(st)
+        return
     if cmd == "status":
         try:
             eq = equity()

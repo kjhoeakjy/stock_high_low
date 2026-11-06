@@ -159,14 +159,26 @@ def main():
     s = guard.cycle(day, "151730", plan, {})
     assert "B" not in s["pending"] and fk.hold["B"]["qty"] == 0 and "B" in s["sold"], "재주문 체결 확인 실패"
     assert not any(h["qty"] for h in fk.hold.values()), "마감 후 보유 잔량"
+    # 4b) 입금 감지: 전날 마지막 D+2 예수금 대비 증가분을 기준 자금에 반영(평가액 70만 원이어도 정지 아님)
+    day15 = "20261110b"
+    fk.day = day15
+    fk.cash = 1_500_000
+    s = guard.cycle(day15, "090030", [], {})
+    assert s["capital"] == 1_000_000 + (1_500_000 - int(guard.load()["eod"]["d2_cash"]) + 0) or s["capital"] > 1_000_000, s["capital"]
+    assert not s["halted"]
+    cap_after_deposit = s["capital"]
+    fk.cash = 700_000
+    st = guard.load(); st["eod"]["d2_cash"] = 700_000; guard.save(st)  # 손실은 거래로 발생(입출금 아님)
     # 5) 다음 날 — 평가액 50% 이하 → 영구 정지, 이후 매수 금지, 잔여 청산은 계속
     day2 = "20261111"
     fk.day = day2
     fk.cash = 450_000
+    st = guard.load(); st["eod"]["d2_cash"] = 450_000; guard.save(st)  # 전날 거래 손실로 45만 원이 된 상황(입출금 없음)
     fk.hold["D"] = {"name": "D", "qty": 4, "avg": 10_000.0}
     fk.halted.add("D")
     s = guard.cycle(day2, "090030", plan, {})
     assert s["halted"] and s["mode"] == "off" and "D" in s["pending"], "원금 보호선 정지 실패"
+    assert s["capital"] == cap_after_deposit, "손실을 출금으로 오인"
     assert not any(o["side"] == "buy" and o["day"] == day2 for o in fk.orders), "정지 후 매수 발생"
     fk.halted.discard("D")
     guard.cycle(day2, "090100", plan, {})
