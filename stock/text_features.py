@@ -116,8 +116,10 @@ def build_text_features(panel_keys: pd.DataFrame, disclosures: pd.DataFrame | No
         n = news.copy()
         n = n[n["dt"].str.len() >= 8]
         n["date"] = _assign_trading_day(n["dt"], trading_days)
+        # 제목 + 기사 첫 문단(있으면)으로 키워드 판정
+        txt = n["title"].fillna("") + " " + (n["body"].fillna("") if "body" in n.columns else "")
         for k, rx in _NEWS.items():
-            n[k] = n["title"].str.contains(rx).astype("int8")
+            n[k] = txt.str.contains(rx).astype("int8")
         n["n_cnt"] = 1
         agg = n.groupby(["code", "date"])[list(_NEWS) + ["n_cnt"]].sum().reset_index()
         out = out.merge(agg, on=["code", "date"], how="left")

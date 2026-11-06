@@ -58,19 +58,25 @@ def fetch_news_one(args) -> list[dict]:
                     continue
                 out.append({"code": code, "id": nid, "dt": str(it.get("datetime") or "")[:12],
                             "title": (it.get("titleFull") or it.get("title") or "").strip(),
-                            "office": it.get("officeName") or ""})
+                            "office": it.get("officeName") or "",
+                            "body": (it.get("body") or "").strip()[:400]})  # 기사 첫 문단(목록 API 제공)
         if hit_known or n_items < 20:
             break
     return out
 
 
-def fetch_news(codes: list[str]) -> pd.DataFrame:
+def fetch_news(codes: list[str], refill: bool = False) -> pd.DataFrame:
     cache = CACHE / "news.parquet"
-    old = pd.read_parquet(cache) if cache.exists() else pd.DataFrame(columns=["code", "id", "dt", "title", "office"])
+    cols = ["code", "id", "dt", "title", "office", "body"]
+    old = pd.read_parquet(cache) if cache.exists() else pd.DataFrame(columns=cols)
+    if "body" not in old.columns:
+        old["body"] = ""
     known = old.groupby("code")["id"].agg(set).to_dict() if len(old) else {}
+    if refill:  # 본문 첫 문단을 채우기 위해 전 구간 재수집(기존 행은 새 행으로 대체)
+        known = {}
     jobs = [(c, known.get(c, set()), NEWS_PAGES_INC if c in known else NEWS_PAGES_FULL) for c in codes]
     parts = pmap(fetch_news_one, jobs, workers=16, label="news")
-    new = pd.DataFrame([r for p in parts if p for r in p], columns=old.columns)
+    new = pd.DataFrame([r for p in parts if p for r in p], columns=cols)
     df = pd.concat([old, new], ignore_index=True) if len(new) else old
     df = df.drop_duplicates(["code", "id"], keep="last")
     # 2년 넘은 기사는 캐시에서 제거(크기 관리)
@@ -90,7 +96,7 @@ def main(argv):
     if "--no-disclosures" not in argv:
         fetch_disclosures(codes).to_parquet(DATA / "disclosures.parquet", index=False)
     if "--no-news" not in argv:
-        fetch_news(codes).to_parquet(DATA / "news.parquet", index=False)
+        fetch_news(codes, refill="--refill-news" in argv).to_parquet(DATA / "news.parquet", index=False)
     print(f"[collect_text] done {time.time()-t0:.0f}s")
 
 
