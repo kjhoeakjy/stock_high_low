@@ -150,6 +150,16 @@ def build(prices: pd.DataFrame, flows: pd.DataFrame | None, universe: list[dict]
     df["atr14"] = (_roll(df, "range", 14) ).astype("float32")
     df["r20max"] = _roll(df, "ret1", 20, "max")
     df["r20min"] = _roll(df, "ret1", 20, "min")
+    # 복권형·관심 변수(문헌: MAX 효과, 상·하위 20위 출현 횟수, 전일 등락 제곱)
+    df["r5max"] = _roll(df, "ret1", 5, "max", 2)
+    df["r20q80"] = _g(df, "ret1").rolling(20, min_periods=10).quantile(0.8).reset_index(level=0, drop=True).astype("float32")
+    df["ret1_sq"] = (df["ret1"] ** 2).astype("float32")
+    drk = df.groupby("date")["ret1"].rank(ascending=False, method="min")
+    df["_top20"] = (drk <= 20).astype("int8")
+    df["_bot20"] = (df.groupby("date")["ret1"].rank(ascending=True, method="min") <= 20).astype("int8")
+    df["n_top20_20"] = _roll(df, "_top20", 20, "sum", 1)
+    df["n_bot20_20"] = _roll(df, "_bot20", 20, "sum", 1)
+    df["n_tb20_20"] = (df["n_top20_20"] + df["n_bot20_20"]).astype("float32")
     # KRX 시장경보 근사 조건
     df["ret15"] = (c / _g(df, "close").shift(15) - 1).astype("float32")
     df["alert3"] = (df["ret3"] >= 1.0).astype("int8")
@@ -168,6 +178,7 @@ def build(prices: pd.DataFrame, flows: pd.DataFrame | None, universe: list[dict]
     df["turn5"] = _roll(df, "turn", 5)
     df["turn2_40"] = (_roll(df, "turn", 2, "mean", 1) / _roll(df, "turn", 40).replace(0, np.nan)).astype("float32")
     df["vz20"] = ((v - _roll(df, "_v", 20)) / _roll(df, "_v", 20, "std").replace(0, np.nan)).astype("float32")
+    df["vz_small"] = (df["vz20"] * (c * shares < 2e11)).astype("float32")  # 소형주 거래량 충격(문헌: 1~2일 반전)
     df["val20"] = _roll(df, "logval", 20)
     df["zero_vol"] = (v == 0).astype("int8")
 
@@ -184,6 +195,10 @@ def build(prices: pd.DataFrame, flows: pd.DataFrame | None, universe: list[dict]
     if flows is not None and len(flows):
         f = flows[["code", "date", "frgn", "inst", "indiv"]].copy()
         df = df.merge(f, on=["code", "date"], how="left")
+        # 개인 매매 강도 대용(개인 순매수 수량 절대값/거래량, 20일 평균) — 거래 비중 자료가 없어 대용 변수
+        df["_indiv_abs"] = (df["indiv"].abs() / v.replace(0, np.nan)).clip(upper=1.0).fillna(0).astype("float32")
+        df["indiv_act20"] = _roll(df, "_indiv_abs", 20, "mean", 5)
+        df["indiv_act5"] = _roll(df, "_indiv_abs", 5, "mean", 2)
         for k in ("frgn", "inst", "indiv"):
             x = (df[k] * c / df["mcap"].replace(0, np.nan)).astype("float32")  # 시총 대비 순매수
             df[f"{k}1"] = x
@@ -235,6 +250,10 @@ def build(prices: pd.DataFrame, flows: pd.DataFrame | None, universe: list[dict]
         from stock.text_features import build_text_features
         tf = build_text_features(df[["code", "date"]], disclosures, news)
         df = df.merge(tf, on=["code", "date"], how="left")
+        # 투자경고·위험 지정 공시 후 경과일(문헌: 지정 후 3일 고점, 20일 하락)
+        if "d_alert_set" in df.columns:
+            df["since_alert"] = _days_since(df["d_alert_set"].fillna(0) > 0, df["code"], cap=60).astype("int16")
+            df["since_alert_notice"] = _days_since(df["d_alert_notice"].fillna(0) > 0, df["code"], cap=60).astype("int16")
 
     # 횡단면 순위(날짜별)
     for k in ("ret1", "vr20", "turn", "logmcap", "logval", "ret5"):
@@ -255,7 +274,7 @@ def build(prices: pd.DataFrame, flows: pd.DataFrame | None, universe: list[dict]
     df["y_oc"] = np.where(valid, (1 + nxt) / (1 + nxt_gap) - 1, np.nan).astype("float32")  # 시가→종가
     df["next_date"] = _g(df, "date").shift(-1)
 
-    df.drop(columns=["_v", "_lr_ex"], inplace=True, errors="ignore")
+    df.drop(columns=["_v", "_lr_ex", "_top20", "_bot20", "_indiv_abs"], inplace=True, errors="ignore")
     return df
 
 

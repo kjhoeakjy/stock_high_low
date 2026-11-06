@@ -19,6 +19,8 @@ from sklearn.metrics import average_precision_score
 from stock import features
 from stock.model import PARAMS, ROUNDS, TRAIN_START, Panel, _weights
 
+NEW_FEATS = ("r5max", "r20q80", "ret1_sq", "n_top20_20", "n_bot20_20", "n_tb20_20", "vz_small", "indiv_act", "since_alert")
+
 CONFIGS = {
     "base": {},
     "lr02_r1200": {"params": {"learning_rate": 0.02}, "rounds": 1200},
@@ -60,6 +62,21 @@ CONFIGS = {
     "hn_nr_ff05": {"hard_neg": 3.0, "recency": False, "params": {"feature_fraction": 0.5}},
     "mix": {"mix": True},                    # 상한가 모델 + oc10 모델 순위 평균
     "mix_hn": {"mix": True, "hard_neg": 3.0, "recency": False},
+    # 3차: 문헌 조사 반영(변수 추가 기여, 순위 학습, 앙상블, 학습 창·반감기, 규칙 필터)
+    "oc10_nonew": {"target": "oc10", "hard_neg": 3.0, "drop_prefix": NEW_FEATS},   # 새 변수 제외(기여도 비교용)
+    "oc_rank": {"target": "oc_grade", "objective": "lambdarank", "pos_min": 2},    # 등급 라벨(0/1/2/3) 순위 학습
+    "oc_rank_t10": {"target": "oc_grade", "objective": "lambdarank", "pos_min": 2, "trunc": 10},
+    "oc10_xgb": {"target": "oc10", "hard_neg": 3.0, "lib": "xgb"},
+    "oc10_seeds3": {"target": "oc10", "hard_neg": 3.0, "n_seeds": 3},
+    "oc10_ens": {"target": "oc10", "hard_neg": 3.0, "ens": [{}, {"seed_off": 1}, {"lib": "xgb"}]},  # LGBM 2시드 + XGB 순위 평균
+    "oc_rank_ens": {"target": "oc10", "hard_neg": 3.0, "ens": [{}, {"target": "oc_grade", "objective": "lambdarank", "pos_min": 2}]},
+    "oc10_win12": {"target": "oc10", "hard_neg": 3.0, "window_months": 12},
+    "oc10_win24": {"target": "oc10", "hard_neg": 3.0, "window_months": 24},
+    "oc10_win36": {"target": "oc10", "hard_neg": 3.0, "window_months": 36},
+    "oc10_hl6": {"target": "oc10", "hard_neg": 3.0, "half_life": 6},
+    "oc10_hl12": {"target": "oc10", "hard_neg": 3.0, "half_life": 12},
+    "oc10_hl24": {"target": "oc10", "hard_neg": 3.0, "half_life": 24},
+    "oc10_rules": {"target": "oc10", "hard_neg": 3.0, "rules": True},   # 예측 후 규칙 필터(경고 지정 3일 초과·소형주 거래량 충격 등)
 }
 
 
@@ -79,23 +96,40 @@ def labels(p: Panel, target: str):
     if target.startswith("oc") and target[2:].isdigit():
         y = (p.y_oc >= int(target[2:]) / 100).astype("int8")
         return y, valid & ~np.isnan(p.y_oc)
+    if target == "oc_grade":  # 시가 매수 수익 등급: 매수 불가·하락 0, 0~5% 1, 5~10% 2, 10%↑ 3
+        oc = np.nan_to_num(p.y_oc, nan=-1.0)
+        g = np.where(oc >= 0.10, 3, np.where(oc >= 0.05, 2, np.where(oc >= 0, 1, 0)))
+        g = np.where(np.nan_to_num(p.y_gap, nan=1.0) >= 0.295, 0, g)
+        return g.astype("int8"), valid & ~np.isnan(p.y_oc)
     if target == "oc_reg":
         y = np.clip(np.nan_to_num(p.y_oc, nan=0.0), -0.3, 0.3).astype("float32")
         return y, valid & ~np.isnan(p.y_oc)
     raise ValueError(target)
 
 
+_DNUM = {}
+
+
+def _days(p: Panel) -> np.ndarray:
+    if "d" not in _DNUM:
+        _DNUM["d"] = pd.to_datetime(pd.Series(p.date), format="%Y%m%d").values.astype("datetime64[D]").astype("int64")
+    return _DNUM["d"]
+
+
 def fit(p: Panel, cfg: dict, tr: np.ndarray, y_all, seed=0):
     neg_keep = cfg.get("neg_keep", 0.25)
     objective = cfg.get("objective", "binary")
+    seed = seed + cfg.get("seed_off", 0)
     idx = np.flatnonzero(tr)
     rng = np.random.default_rng(seed)
-    pos = (y_all[idx] > 0) if objective != "regression" else (np.abs(y_all[idx]) > 0.1)
+    pos = (y_all[idx] >= cfg.get("pos_min", 1)) if objective != "regression" else (np.abs(y_all[idx]) > 0.1)
     keep = pos | (rng.random(len(idx)) < neg_keep)
     idx = idx[keep]
     y = y_all[idx]
     params = dict(PARAMS, **cfg.get("params", {}))
     params["seed"] = PARAMS["seed"] + seed
+    ref_day = _days(p)[np.flatnonzero(tr)].max()  # 학습 자료의 마지막 날(검증 달 직전) 기준 경과일
+    age = (ref_day - _days(p)[idx]).astype("float32")
     cols = p.cols
     X = p.X[idx]
     if cfg.get("drop_prefix"):
@@ -103,8 +137,10 @@ def fit(p: Panel, cfg: dict, tr: np.ndarray, y_all, seed=0):
         X = X[:, keep_c]
         cols = [cols[i] for i in keep_c]
     w = np.where(y > 0, 1.0, 1.0 / neg_keep).astype("float32") if objective != "regression" else np.ones(len(idx), "float32")
-    if cfg.get("recency", True):
-        w = w * (1.0 - 0.5 * np.clip(p.age_days[idx] / 1825.0, 0, 1)).astype("float32")
+    if cfg.get("half_life"):
+        w = w * (0.5 ** (age / (cfg["half_life"] * 30.4))).astype("float32")
+    elif cfg.get("recency", True):
+        w = w * (1.0 - 0.5 * np.clip(age / 1825.0, 0, 1)).astype("float32")
     if cfg.get("pos_weight"):
         w = np.where(y > 0, w * cfg["pos_weight"], w).astype("float32")
     if cfg.get("hard_neg"):
@@ -116,14 +152,48 @@ def fit(p: Panel, cfg: dict, tr: np.ndarray, y_all, seed=0):
         if cfg.get("graded"):
             y = (p.y["y_up"][idx] * 2 + (np.nan_to_num(p.y_oc[idx]) >= 0.10)).astype("int8")
         _, counts = np.unique(p.date[idx], return_counts=True)
-        params.update(objective="lambdarank", metric="ndcg", lambdarank_truncation_level=30, label_gain=[0, 1, 3, 7])
+        params.update(objective="lambdarank", metric="ndcg", eval_at=[5], lambdarank_truncation_level=cfg.get("trunc", 20),
+                      label_gain=[0, 1, 3, 7])
         ds = lgb.Dataset(X, y, group=counts, feature_name=cols, free_raw_data=True)
+    elif cfg.get("lib") == "xgb":
+        import xgboost as xgb
+        dm = xgb.DMatrix(_finite(X), label=y, weight=w, feature_names=cols, nthread=0)
+        xp = {"objective": "binary:logistic", "tree_method": "hist", "eta": params["learning_rate"], "max_depth": 8,
+              "min_child_weight": 200, "subsample": 0.8, "colsample_bytree": 0.7, "lambda": 10.0, "max_bin": 255,
+              "seed": params["seed"], "verbosity": 0}
+        bst = xgb.train(xp, dm, num_boost_round=cfg.get("rounds", ROUNDS))
+        del dm
+        return _XGB(bst, cols), cols
     else:
         if objective == "regression":
             params.update(objective="huber", alpha=0.1)
         ds = lgb.Dataset(X, y, weight=w, feature_name=cols, free_raw_data=True)
     mdl = lgb.train(params, ds, num_boost_round=cfg.get("rounds", ROUNDS))
     return mdl, cols
+
+
+class _XGB:
+    def __init__(self, bst, cols):
+        self.bst, self.cols = bst, cols
+
+    def predict(self, X):
+        import xgboost as xgb
+        return self.bst.predict(xgb.DMatrix(_finite(X), feature_names=self.cols, nthread=0))
+
+
+def _finite(X: np.ndarray) -> np.ndarray:
+    """XGBoost는 inf를 받지 않으므로 결측으로 바꾼다(LightGBM은 큰 값으로 처리)."""
+    return np.where(np.isfinite(X), X, np.nan).astype("float32")
+
+
+def apply_rules(p: Panel, ti: np.ndarray, pr: np.ndarray) -> np.ndarray:
+    """문헌 기반 규칙: 투자경고 지정 후 3일 초과 경과(20일 하락 구간), 소형주 거래량 충격(z>3) 종목은 순위에서 뒤로 보낸다."""
+    pen = np.zeros(len(ti), "float32")
+    for name, lo, hi, val in (("since_alert", 3, 20, 1.0), ("vz_small", 3.0, 1e9, 0.5)):
+        if name in p.cols:
+            x = p.X[ti, p.cols.index(name)]
+            pen += np.where((x > lo) & (x <= hi), val, 0.0).astype("float32")
+    return pr - pen
 
 
 def evaluate(oos: pd.DataFrame, k: int = 5) -> dict:
@@ -154,8 +224,11 @@ def run(name: str, p: Panel, months: int, seed: int = 0) -> dict:
     outs = []
     t0 = time.time()
     i_pref, i_val = p.cols.index("is_pref"), p.cols.index("logval")
+    all_yms = sorted(set(p.ym))
     for m in test_months:
         tr = valid & (p.ym < m) & (p.date >= train_start)
+        if cfg.get("window_months"):
+            tr &= p.ym >= all_yms[max(0, all_yms.index(m) - cfg["window_months"])]
         te = valid & (p.ym == m)
         if te.sum() == 0:
             continue
@@ -181,6 +254,15 @@ def run(name: str, p: Panel, months: int, seed: int = 0) -> dict:
             a, b = _pred(sub, y_all, tr), _pred(sub, yo, tr & vo)
             d = pd.DataFrame({"date": p.date[ti], "a": a, "b": b})
             pr = (d.groupby("date")["a"].rank(pct=True) + d.groupby("date")["b"].rank(pct=True)).to_numpy("float32") / 2
+        elif cfg.get("ens"):
+            base = {k: v for k, v in cfg.items() if k != "ens"}
+            parts = []
+            for sub in cfg["ens"]:
+                c2 = dict(base, **sub)
+                ys, vs = (y_all, valid) if c2.get("target", target) == target else labels(p, c2["target"])
+                parts.append(_pred(c2, ys, tr & vs))
+            d = pd.DataFrame({"date": p.date[ti], **{f"p{i}": a for i, a in enumerate(parts)}})
+            pr = sum(d.groupby("date")[f"p{i}"].rank(pct=True) for i in range(len(parts))).to_numpy("float32") / len(parts)
         elif cfg.get("blend"):
             a, b = _pred({}, y_all, tr), _pred({"objective": "lambdarank"}, y_all, tr)
             d = pd.DataFrame({"date": p.date[ti], "a": a, "b": b})
@@ -189,6 +271,8 @@ def run(name: str, p: Panel, months: int, seed: int = 0) -> dict:
             pr = np.mean([_pred(cfg, y_all, tr, s) for s in range(cfg["n_seeds"])], axis=0).astype("float32")
         else:
             pr = _pred(cfg, y_all, tr)
+        if cfg.get("rules"):
+            pr = apply_rules(p, ti, pr)
         outs.append(pd.DataFrame({"date": p.date[ti], "y_up": p.y["y_up"][ti], "p": pr, "y_gap": p.y_gap[ti], "y_oc": p.y_oc[ti],
                                   "pref": p.X[ti, i_pref], "val": np.expm1(p.X[ti, i_val])}))
         gc.collect()
