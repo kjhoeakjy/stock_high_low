@@ -119,7 +119,7 @@ tr.ex td{opacity:.5}
   <section style="max-width:960px" class="plan">
     <h2>매수 계획</h2>
     <div class="h2sub" id="plansub"></div>
-    <div class="rules"><b>매매 규칙</b><span>09:05~09:20 상위 종목 매수(아래 주수)</span><span>매수가 대비 −5% 도달 시 즉시 매도(손절)</span><span>상한가 도달 시 즉시 매도</span><span>그 외 15:15 전량 매도</span><span>시가 상한가·거래정지·점수 하위 30% 날은 매수 안 함</span></div>
+    <div class="rules"><b>매매 규칙</b><span>09:01 상위 종목 매수(아래 주수)</span><span>매수가 대비 −5% 도달 시 즉시 매도(손절)</span><span>상한가 도달 시 즉시 매도</span><span>그 외 15:15 전량 매도</span><span>시가 상한가·거래정지·점수 하위 30% 날은 매수 안 함</span></div>
     <div class="ctl"><label>오늘 투자 금액 <input id="capital" type="number" step="10000" min="0" inputmode="numeric"> 원</label><button onclick="applyCapital()">적용</button></div>
     <div id="plan"></div>
     <div class="ctl"><button onclick="confirmPlan()">매수 확정 · 내 기록에 저장</button><span id="planmsg" style="color:var(--mut);font-size:15px"></span></div>
@@ -176,13 +176,13 @@ async function loadLive(){
   const TR=(LIVE&&LIVE.trades&&LIVE.trades.items)||{};
   const tcell=x=>{const t=TR[x.code];if(!t)return '<td>-</td><td>-</td>';if(t.skip)return `<td>-</td><td><small style="color:var(--mut)">${t.skip}</small></td>`;const v=t.net!=null?t.net:t.now;return `<td>${t.entry.toLocaleString()}</td><td class="${cls(v)}">${v==null?'-':sgn(v)}${t.net!=null?'<br><small style="color:var(--mut)">'+(t.exit_why=='상한가'?'상한가 매도 ':t.exit_why=='손절'?'손절 ':'청산 ')+t.exit.toLocaleString()+'</small>':''}</td>`;};
   const row=(x,i,withRank)=>`<tr${withRank&&x.gap!=null&&x.gap>=0.295?' class="ex"':''}><td class="l">${withRank?`<span class="rank">${x.morning_rank||i+1}</span>`:''}<b>${x.name}</b>${x.pref?' <small style="color:var(--mut)">우선주</small>':''}</td><td>${x.p!=null?pf(x.p):'-'}</td><td>${x.price.toLocaleString()}</td><td class="big ${cls(x.ret)}">${sgn(x.ret)}</td><td class="${cls(x.o_ret)}">${x.o_ret==null?'-':sgn(x.o_ret)}</td>${withRank?tcell(x):''}<td>${x.hi_ret==null?'-':sgn(x.hi_ret)}</td><td>${x.status=='상한가'?'도달':f(x.to_limit,1)}</td><td>${x.val!=null?won(x.val):'-'}</td><td>${st(x)}</td></tr>`;
-  const head=w=>`<tr><th class="l">종목</th><th>장전 확률</th><th>현재가</th><th>등락률</th><th>시가 대비</th>${w?'<th>진입가 09:05</th><th>진입 대비</th>':''}<th>고가</th><th>상한가 괴리</th><th>거래대금</th><th>상태</th></tr>`;
+  const head=w=>`<tr><th class="l">종목</th><th>장전 확률</th><th>현재가</th><th>등락률</th><th>시가 대비</th>${w?'<th>진입가 09:01</th><th>진입 대비</th>':''}<th>고가</th><th>상한가 괴리</th><th>거래대금</th><th>상태</th></tr>`;
   const tbl=(rows,withRank)=>rows.length?`<table class="lv">${head(withRank)}${rows.map((x,i)=>row(x,i,withRank)).join('')}</table>`:'<div class="ev" style="margin-bottom:18px">없음</div>';
   const locked=x=>x.gap!=null&&x.gap>=0.295;
   const mrows=(MODE==='common'?d.morning.filter(x=>!x.pref):MODE==='liquid'?d.morning.filter(x=>!x.pref&&x.val!=null):d.morning).slice(0,5).sort((a,b)=>locked(a)-locked(b));
   document.getElementById('live-morning').innerHTML=tbl(mrows,true);
   const nl=mrows.filter(x=>x.status=='상한가').length, nt=mrows.filter(x=>x.status=='도달 후 이탈').length, mr=mrows.length?mrows.reduce((a,x)=>a+x.ret,0)/mrows.length:null, mo=mrows.filter(x=>x.o_ret!=null), moc=mo.length?mo.reduce((a,x)=>a+x.o_ret,0)/mo.length:null;
-  const tl=d.trades||null, tline=tl&&tl.n_entered?(tl.net_day!=null?` · <b>09:05 진입·규칙 매도 순수익 <span class="${cls(tl.net_day)}">${sgn(tl.net_day)}</span></b>(${tl.n_entered}종목, 비용 차감)`:` · 진입 대비 <b class="${cls(tl.open_day)}">${sgn(tl.open_day)}</b>(${tl.n_entered}종목 09:05 진입)`):'';
+  const tl=d.trades||null, tline=tl&&tl.n_entered?(tl.net_day!=null?` · <b>09:01 진입·규칙 매도 순수익 <span class="${cls(tl.net_day)}">${sgn(tl.net_day)}</span></b>(${tl.n_entered}종목, 비용 차감)`:` · 진입 대비 <b class="${cls(tl.open_day)}">${sgn(tl.open_day)}</b>(${tl.n_entered}종목 09:01 진입)`):'';
   const flag=(DATA&&DATA.trade_today===false)?'<span class="halt">미거래일(점수 하위)</span> ':'';
   document.getElementById('msum').innerHTML=mrows.length?`${flag}<b style="color:var(--up);font-size:20px">${mrows.length}종목 중 상한가 ${nl}</b>${nt?` · 도달 후 이탈 ${nt}`:''} · 평균 등락 <b class="${cls(mr)}">${sgn(mr)}</b>${moc!=null?` · 시가 매수 평균 <b class="${cls(moc)}">${sgn(moc)}</b>`:''}${tline}`:'';
   document.getElementById('live-limit').innerHTML=tbl(d.limit,false);
@@ -264,7 +264,7 @@ function renderPlan(A){
   const {rows,cash}=allocate(items,A,priceOf);
   const spent=A-cash, flag=DATA.trade_today===false;
   const acc=DATA.account, accNote=acc&&acc.cash>0?` · 계좌 현금 ${acc.cash.toLocaleString()}원(${(acc.at||'').slice(5,16)} 조회)`:'';
-  document.getElementById('plansub').innerHTML=(flag?'<span class="halt">미거래 권고</span> 상위 5 평균 점수가 검증 기간 하위 30% 미만 · 현금 보유 권장 · ':'')+`${A.toLocaleString()}원 기준 · 기준가 ${liveOK?'실시간 현재가':'전일 종가(09:00 이후 현재가로 갱신)'} · 09:05~09:20 매수 · −5% 손절 · 상한가 즉시 매도 · 그 외 15:15 매도${accNote}`;
+  document.getElementById('plansub').innerHTML=(flag?'<span class="halt">미거래 권고</span> 상위 5 평균 점수가 검증 기간 하위 30% 미만 · 현금 보유 권장 · ':'')+`${A.toLocaleString()}원 기준 · 기준가 ${liveOK?'실시간 현재가':'전일 종가(09:00 이후 현재가로 갱신)'} · 09:01 매수 · −5% 손절 · 상한가 즉시 매도 · 그 외 15:15 매도${accNote}`;
   const tr=rows.map((x,i)=>`<tr${x.locked||x.n===0?' class="ex"':''}><td class="l"><span class="rank">${i+1}</span><b>${x.it.name}</b>${x.locked?' <small>시가 상한가 · 매수 불가</small>':x.n===0?' <small>금액 부족</small>':''}</td><td>${pf(x.it.p_oc!=null?x.it.p_oc:x.it.p)}</td><td>${x.it.p_lock!=null?pf(x.it.p_lock):'-'}</td><td>${Math.round((x.w||0)*100)}%</td><td>${x.price.toLocaleString()}${x.live?'':'<br><small style="color:var(--mut)">전일 종가</small>'}</td><td class="big">${x.n.toLocaleString()}주</td><td>${(x.n*x.price).toLocaleString()}</td></tr>`).join('');
   document.getElementById('plan').innerHTML=rows.length?`<table class="lv"><tr><th class="l">종목</th><th>+10% 확률</th><th>매수 불가 확률</th><th>비중</th><th>기준가</th><th>주수</th><th>매수 금액</th></tr>${tr}<tr><td class="l"><b>합계</b></td><td></td><td></td><td>${Math.round(spent/A*100)||0}%</td><td></td><td></td><td><b>${spent.toLocaleString()}</b><br><small style="color:var(--mut)">남는 현금 ${cash.toLocaleString()}</small></td></tr></table>`:'<div class="ev">후보 없음</div>';
   PLAN={date:td,capital:A,rows:rows.filter(x=>x.n>0).map(x=>({code:x.it.code,name:x.it.name,n:x.n,price:x.price}))};

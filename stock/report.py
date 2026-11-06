@@ -330,7 +330,7 @@ def grade_history(actual: pd.DataFrame) -> list[dict]:
         if a is not None and len(a):
             h["graded"] = True
             h["actual_up_count"] = int((a["ret1"] >= 0.295).sum())
-            # 장중 기록(09:05 진입·15:15 청산)이 있으면 실제 진입·청산 순수익을 함께 기록
+            # 장중 기록(09:01 진입·15:15 청산)이 있으면 실제 진입·청산 순수익을 함께 기록
             tl = crypt.read_json(DATA / "live_trades" / f"{tgt}.json", None) if tgt else None
             if tl and tl.get("items"):
                 for it in h.get("up", []):
