@@ -38,7 +38,6 @@ jobs:
         name: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     env:
       PYTHONUNBUFFERED: "1"
-      EXP_CKPT_DIR: ${{ runner.tool_cache }}/exp_ckpt
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/python
@@ -52,4 +51,6 @@ jobs:
           git reset -q
           ls -la stock/data | head
       - name: 실험
+        env:
+          EXP_CKPT_DIR: ${{ runner.tool_cache }}/exp_ckpt
         run: python -m stock.experiment ${{ matrix.name }} --months=${{ inputs.months || '6' }}
