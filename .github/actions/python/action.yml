@@ -1,0 +1,47 @@
+name: Python 준비
+description: GitHub 서버는 setup-python, 자체 호스팅 Windows 노트북은 uv로 Python 3.12 가상환경을 준비(레지스트리 권한 불필요)
+inputs:
+  packages:
+    description: 설치할 패키지(pip 인자 형식, 예 "-r stock/requirements.txt")
+    default: ""
+  torch:
+    description: CPU torch 설치 여부
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - if: runner.os != 'Windows'
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - if: runner.os != 'Windows'
+      shell: bash
+      run: echo "PIPCMD=python -m pip install" >> "$GITHUB_ENV"
+    - if: runner.os == 'Windows'
+      shell: bash
+      run: |
+        set -e
+        TOOL=$(cygpath -u "$RUNNER_TOOL_CACHE"); mkdir -p "$TOOL"
+        UV="$TOOL/uv"
+        if [ ! -x "$UV/uv.exe" ]; then
+          mkdir -p "$UV"
+          curl -sSL -o "$UV/uv.zip" https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip
+          tar -xf "$UV/uv.zip" -C "$UV" && rm -f "$UV/uv.zip"
+        fi
+        export UV_PYTHON_INSTALL_DIR=$(cygpath -w "$TOOL/uv-python") UV_CACHE_DIR=$(cygpath -w "$TOOL/uv-cache")
+        VENV="$TOOL/venv312"
+        [ -x "$VENV/Scripts/python.exe" ] || "$UV/uv.exe" venv "$(cygpath -w "$VENV")" --python 3.12
+        PY=$(cygpath -w "$VENV/Scripts/python.exe")
+        "$PY" --version
+        {
+          echo "UV_PYTHON_INSTALL_DIR=$UV_PYTHON_INSTALL_DIR"; echo "UV_CACHE_DIR=$UV_CACHE_DIR"
+          echo "VIRTUAL_ENV=$(cygpath -w "$VENV")"
+          echo "PIPCMD=$(cygpath -w "$UV/uv.exe") pip install --python $PY"
+        } >> "$GITHUB_ENV"
+        echo "$(cygpath -w "$VENV/Scripts")" >> "$GITHUB_PATH"
+    - shell: bash
+      run: |
+        set -e
+        [ -z "${{ inputs.packages }}" ] || $PIPCMD -q ${{ inputs.packages }}
+        [ "${{ inputs.torch }}" != "true" ] || $PIPCMD -q torch --index-url https://download.pytorch.org/whl/cpu
+        python -c "import sys, platform; print(sys.version, platform.machine())"

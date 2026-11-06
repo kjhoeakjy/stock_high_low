@@ -22,10 +22,9 @@ jobs:
       PYTHONUNBUFFERED: "1"
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/python
         with:
-          python-version: "3.12"
-      - run: pip install -q pandas pyarrow numpy lightgbm scikit-learn
+          packages: "pandas pyarrow numpy lightgbm scikit-learn"
       - name: 검증 캐시 받기
         run: |
           git fetch -q --depth=1 origin stock-data

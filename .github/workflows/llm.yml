@@ -32,10 +32,9 @@ jobs:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/python
         with:
-          python-version: "3.12"
-      - run: pip install -q pandas pyarrow numpy lightgbm scikit-learn anthropic
+          packages: "pandas pyarrow numpy lightgbm scikit-learn anthropic"
       - name: 자료 받기
         run: |
           git fetch -q --depth=1 origin stock-data

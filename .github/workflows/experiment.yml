@@ -43,10 +43,9 @@ jobs:
       PYTHONUNBUFFERED: "1"
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/python
         with:
-          python-version: "3.12"
-      - run: pip install -q -r stock/requirements.txt
+          packages: "-r stock/requirements.txt"
       - name: 데이터 받기
         run: |
           git fetch -q --depth=1 origin stock-data
