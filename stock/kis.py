@@ -124,6 +124,20 @@ class KIS:
                 "volume": int(o["acml_vol"]), "value": int(o["acml_tr_pbmn"]), "rate": float(o["prdy_ctrt"]) / 100,
                 "halt": o.get("temp_stop_yn") == "Y", "vi": o.get("vi_cls_code")}
 
+    def minutes(self, code: str, date: str, until: str = "093000", fake: bool = False) -> list[dict]:
+        """과거 날짜 1분봉(주식일별분봉조회 FHKST03010230): date(YYYYMMDD)의 until(HHMMSS) 이전 최대 120봉, 시각 내림차순 반환.
+        KIS 보관 기간 약 1년. 실전·모의 공통 tr_id."""
+        p = {"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": code, "FID_INPUT_DATE_1": date, "FID_INPUT_HOUR_1": until,
+             "FID_PW_DATA_INCU_YN": "Y", "FID_FAKE_TICK_INCU_YN": "Y" if fake else "N"}
+        j = self._get("/uapi/domestic-stock/v1/quotations/inquire-time-dailychartprice", p, "FHKST03010230")
+        out = []
+        for r in j.get("output2") or []:
+            if (r.get("stck_bsop_date") or date) != date:
+                continue
+            out.append({"date": date, "code": code, "time": r.get("stck_cntg_hour"), "open": _i(r.get("stck_oprc")), "high": _i(r.get("stck_hgpr")),
+                        "low": _i(r.get("stck_lwpr")), "close": _i(r.get("stck_prpr")), "vol": _i(r.get("cntg_vol")), "amt_cum": _i(r.get("acml_tr_pbmn"))})
+        return out
+
     def orderbook(self, code: str) -> dict:
         o = self._get("/uapi/domestic-stock/v1/quotations/inquire-asking-price-exp-ccn",
                       {"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": code}, "FHKST01010200")["output1"]
@@ -301,6 +315,8 @@ def main(argv: list[str]) -> None:
         DATA.mkdir(parents=True, exist_ok=True)
         (DATA / "kis_account.json").write_text(json.dumps(b, ensure_ascii=False))
         print(f"[kis] snapshot cash={b['cash']:,} total={b['total']:,} holdings={len(b['holdings'])}")
+    elif cmd == "minutes":
+        print(json.dumps(k.minutes(argv[1], argv[2], argv[3] if len(argv) > 3 else "093000"), ensure_ascii=False, indent=1)[:4000])
     elif cmd == "price":
         print(k.price(argv[1]))
         print(k.orderbook(argv[1]))
