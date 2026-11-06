@@ -12,9 +12,6 @@ on:
       months:
         description: "검증 개월 수"
         default: "6"
-  push:
-    branches: [main]
-    paths: [.github/workflows/experiment.yml]
 permissions:
   contents: read
 jobs:
