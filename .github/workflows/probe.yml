@@ -1,12 +1,16 @@
 name: 접속 점검
 on:
   workflow_dispatch:
+    inputs:
+      script:
+        description: "stock/tools/ 아래 스크립트 이름"
+        default: "probe2.sh"
   push:
-    paths: [.github/workflows/probe.yml, stock/tools/probe.sh]
+    paths: [.github/workflows/probe.yml, stock/tools/probe*.sh]
 jobs:
   probe:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - run: bash stock/tools/probe.sh
+      - run: bash stock/tools/${{ inputs.script || 'probe2.sh' }}
