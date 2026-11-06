@@ -61,6 +61,7 @@ h2{font-size:26px;margin:0 0 4px}
 .kv{background:var(--chip);border-radius:12px;padding:10px 12px}
 .kv b{display:block;font-size:26px;font-weight:800}
 .kv span{color:var(--mut);font-size:15px}
+.kv small{display:block;color:var(--mut);opacity:.75;font-size:12px;line-height:1.35;margin-top:3px}
 table{width:100%;border-collapse:collapse;font-size:16px;margin-top:10px}
 td,th{padding:7px 6px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
 th{color:var(--mut);font-weight:500}
@@ -276,9 +277,9 @@ function perfSvg(pf){
 }
 function stats(d){
   const su=d.stats.y_up, g=document.getElementById('stat');
-  const kv=(b,s)=>`<div class="kv"><b>${b}</b><span>${s}</span></div>`;
-  g.innerHTML=kv(f(su['p@5'],0),'상위5 적중률')+(su['up10@5']!=null?kv(f(su['up10@5'],0),'상위5 +10% 이상 상승'):'')+(su['oc10@5']!=null?kv(f(su['oc10@5'],0),'시가 매수 +10% 이상'):'')+kv(su['hits@5'].toFixed(2),'일평균 적중 수')+kv(f(su.base_rate,2),'기준율')+kv((su['p@5']/su.base_rate).toFixed(0)+'배','기준율 대비')
-    +(su['open_to_close@5']!=null?kv(`<span class="${cls(su['oc_mean_ex_unbuyable@5'])}">${sgn(su['oc_mean_ex_unbuyable@5'])}</span>`,'시가 매수 평균 수익')+kv(sgn(su['open_gap@5']),'평균 시가 갭')+kv(f(su['unbuyable@5'],0),'시가 상한가 비율')+kv(f(su['oc_win@5'],0),'시가 매수 상승 마감 비율'):'')
+  const kv=(b,s,d)=>`<div class="kv"><b>${b}</b><span>${s}</span>${d?`<small>${d}</small>`:''}</div>`;
+  g.innerHTML=kv(f(su['p@5'],0),'상위5 적중률','매일 상위 5종목 중 익일 상한가 마감 비율')+(su['up10@5']!=null?kv(f(su['up10@5'],0),'상위5 +10% 이상 상승','상위 5종목 중 익일 종가 +10% 이상 비율'):'')+(su['oc10@5']!=null?kv(f(su['oc10@5'],0),'시가 매수 +10% 이상','시가 매수 후 종가 +10% 이상 비율'):'')+kv(su['hits@5'].toFixed(2),'일평균 적중 수','하루 5종목 중 상한가 마감 종목 수')+kv(f(su.base_rate,2),'기준율','전 종목 중 무작위 선택 시 상한가 비율')+kv((su['p@5']/su.base_rate).toFixed(0)+'배','기준율 대비','적중률 ÷ 기준율')
+    +(su['open_to_close@5']!=null?kv(`<span class="${cls(su['oc_mean_ex_unbuyable@5'])}">${sgn(su['oc_mean_ex_unbuyable@5'])}</span>`,'시가 매수 평균 수익','익일 시가 매수·종가 매도 평균 수익률')+kv(sgn(su['open_gap@5']),'평균 시가 갭','익일 시가의 전일 종가 대비 평균 등락')+kv(f(su['unbuyable@5'],0),'시가 상한가 비율','시가부터 상한가라 매수 불가한 비율')+kv(f(su['oc_win@5'],0),'시가 매수 상승 마감 비율','시가 매수 시 종가가 시가보다 높은 비율'):'')
 ;
   const bt=(s)=>`<table><tr><th>모델 확률</th><th>건수</th><th>적중률</th></tr>${s.buckets.map(b=>`<tr><td>${pf(b.lo)} ~ ${pf(Math.min(b.hi,1))}</td><td>${b.n.toLocaleString()}</td><td>${pf(b.rate)}</td></tr>`).join('')}</table>
     <table><tr><th>월</th><th>거래일</th><th>상한가 발생</th><th>상위5 적중률</th><th>+10% 이상</th><th>시가 갭</th><th>시가 매수 수익</th></tr>${s.monthly.map(m=>`<tr><td>${m.ym.slice(0,4)}.${m.ym.slice(4)}</td><td>${m.days}</td><td>${m.pos}</td><td>${f(m['p@5'],0)}</td><td>${m['up10@5']!=null?f(m['up10@5'],0):'-'}</td><td class="${cls(m['gap@5'])}">${m['gap@5']==null?'':sgn(m['gap@5'])}</td><td class="${cls(m['oc@5'])}">${m['oc@5']==null?'':sgn(m['oc@5'])}</td></tr>`).join('')}</table>`;
