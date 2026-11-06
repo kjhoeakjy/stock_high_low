@@ -41,6 +41,7 @@ jobs:
         name: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     env:
       PYTHONUNBUFFERED: "1"
+      EXP_CKPT_DIR: ${{ runner.tool_cache }}/exp_ckpt
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/python

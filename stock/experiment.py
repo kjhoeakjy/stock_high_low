@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import gc
 import json
+import os
 import sys
 import time
+from pathlib import Path
 
 import lightgbm as lgb
 import numpy as np
@@ -300,7 +302,17 @@ def run(name: str, p: Panel, months: int, seed: int = 0) -> dict:
     t0 = time.time()
     i_pref, i_val = p.cols.index("is_pref"), p.cols.index("logval")
     all_yms = sorted(set(p.ym))
+    # 월별 중간 저장(EXP_CKPT_DIR): 전원 차단 등으로 중단된 실험을 다시 실행하면 완료된 달은 건너뛴다.
+    # 키에 자료 범위(마지막 날짜·행 수)를 넣어 자료가 바뀌면 처음부터 계산.
+    ckpt = None
+    if os.environ.get("EXP_CKPT_DIR"):
+        ckpt = Path(os.environ["EXP_CKPT_DIR"]) / f"{name}_{months}_{int(p.date.max())}_{len(p.date)}_{seed}"
+        ckpt.mkdir(parents=True, exist_ok=True)
     for m in test_months:
+        if ckpt is not None and (ckpt / f"{m}.parquet").exists():
+            outs.append(pd.read_parquet(ckpt / f"{m}.parquet"))
+            print(f"[exp {name}] {m} 중간 저장 사용", flush=True)
+            continue
         tr = valid & (p.ym < m) & (p.date >= train_start)
         if cfg.get("window_months"):
             tr &= p.ym >= all_yms[max(0, all_yms.index(m) - cfg["window_months"])]
@@ -350,6 +362,10 @@ def run(name: str, p: Panel, months: int, seed: int = 0) -> dict:
             pr = apply_rules(p, ti, pr)
         outs.append(pd.DataFrame({"date": p.date[ti], "y_up": p.y["y_up"][ti], "p": pr, "y_gap": p.y_gap[ti], "y_oc": p.y_oc[ti], "y_ocx": p.y_ocx[ti], "close": p.close[ti],
                                   "pref": p.X[ti, i_pref], "val": np.expm1(p.X[ti, i_val])}))
+        if ckpt is not None:
+            tmp = ckpt / f"{m}.parquet.tmp"
+            outs[-1].to_parquet(tmp, index=False)
+            os.replace(tmp, ckpt / f"{m}.parquet")
         gc.collect()
         print(f"[exp {name}] {m} done {time.time()-t0:.0f}s", flush=True)
     oos = pd.concat(outs, ignore_index=True)
