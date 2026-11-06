@@ -11,6 +11,7 @@ import pandas as pd
 from stock.common import DATA, OUT, http_json, pmap
 
 TOP = 25
+LOCK_MAX = 0.5  # 시가 상한가(매수 불가) 확률이 이 값 이상이면 아침 후보에서 제외
 
 # 특징 → 한국어 근거 문구 (값 포맷 함수)
 def _pct(v): return f"{v*100:+.1f}%"
@@ -241,19 +242,21 @@ def score_today(today: pd.DataFrame, res: dict, universe: list[dict], recent_p=N
     over = _load_json("overnight.json") or {}
     halted |= {c for c, v in status.items() if v.get("halt")}
     today = today[(today["volume"] > 0) & ~today["code"].isin(halted)]
-    # 전일 상한가 종목 제외: 시가부터 상한가로 막혀 매수 불가한 경우가 많아 아침 매수 후보로 의미 없음(사용자 결정 2026-11-06)
-    today = today[today["ret1"] < 0.295]
     out = {"as_of": last_date, "up": [], "n_scored": int(len(today))}
     try:
         dart = json.loads((DATA / "dart_today.json").read_text())
     except Exception:  # noqa: BLE001
         dart = []
     X_today = today[cols].to_numpy("float32")
-    for target, key in (("y_up", "up"), ("y_oc10", "oc")):
+    for target, key in (("y_up", "up"), ("y_oc10", "oc"), ("y_lock", "lock")):
         t = res["targets"][target]
         raw = t["model"].predict(X_today)
         today[f"p_{key}"] = t["iso"].predict(raw).astype("float32")
         today[f"raw_{key}"] = raw.astype("float32")
+    # 실질적으로 아침에 살 수 없는 종목 제외: 시가 상한가 확률 LOCK_MAX 이상(사용자 결정 2026-11-06)
+    n_lock = int((today["p_lock"] >= LOCK_MAX).sum())
+    today = today[today["p_lock"] < LOCK_MAX]
+    out["n_excluded_lock"] = n_lock
     for target, key in (("y_up", "up"),):
         t = res["targets"][target]
         cal = today["p_up"].to_numpy()
@@ -272,7 +275,7 @@ def score_today(today: pd.DataFrame, res: dict, universe: list[dict], recent_p=N
                 "val": float(np.expm1(r["logval"])) if pd.notna(r.get("logval")) else None,
                 "p": round(float(r[f"p_{key}"]), 4), "raw": round(float(r[f"raw_{key}"]), 4),
                 "hist_rate": b["rate"], "hist_n": b["n"], "hist_oc": b.get("oc"), "hist_unb": b.get("unb"), "hist_oc_win": b.get("oc_win"),
-                "p_oc": round(float(r["p_oc"]), 4), "raw_oc": round(float(r["raw_oc"]), 4),
+                "p_oc": round(float(r["p_oc"]), 4), "raw_oc": round(float(r["raw_oc"]), 4), "p_lock": round(float(r["p_lock"]), 4),
                 "trade_rate": bo["rate"], "trade_n": bo["n"], "trade_oc": bo.get("oc"), "trade_oc_win": bo.get("oc_win"), "trade_unb": bo.get("unb"),
                 "analysis": analysis(r), "chart": _chart(r["code"], last_date, recent_p, recent_f),
                 "groups": _groups_of(r["code"], groups),

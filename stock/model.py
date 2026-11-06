@@ -46,6 +46,8 @@ class Panel:
         self.y_oc = df["y_oc"].to_numpy("float32")
         # 단타 라벨: 익일 시가 매수 → 종가 +10% 이상(실험 결과 시가 매수 수익에 가장 유리)
         self.y["y_oc10"] = np.where(np.isnan(self.y_oc) | (self.y["y_up"] < 0), -1, (self.y_oc >= 0.10)).astype("int8")
+        # 시가 상한가(매수 불가) 라벨: 익일 시가가 이미 상한가
+        self.y["y_lock"] = np.where(np.isnan(self.y_gap) | (self.y["y_up"] < 0), -1, (self.y_gap >= 0.295)).astype("int8")
         self.next_date = df["next_date"].to_numpy()
         self.ym = np.array([d[:6] for d in self.date])
         self.age_days = ((pd.to_datetime(self.date.max(), format="%Y%m%d")
@@ -120,9 +122,6 @@ def walk_forward(p: Panel, target: str, months: int = 12, rounds: int = ROUNDS) 
 
 
 def summarize(oos: pd.DataFrame, target: str) -> dict:
-    # 화면과 동일한 후보 규칙: 전일 상한가 종목 제외(시가 상한가로 매수 불가한 경우가 많음)
-    if "ret1" in oos.columns:
-        oos = oos[oos["ret1"] < 0.295].reset_index(drop=True)
     y, p = oos[target].to_numpy(), oos["p"].to_numpy()
     res = {"n": int(len(y)), "pos": int(y.sum()), "base_rate": float(y.mean()),
            "ap": float(average_precision_score(y, p)), "auc": float(roc_auc_score(y, p)),
@@ -199,8 +198,9 @@ def run(df, months: int = 12, rounds: int = ROUNDS, n_seeds: int = 3) -> dict:
     p = df if isinstance(df, Panel) else Panel(df)
     print(f"[model] {len(p.cols)} features, X {p.X.shape} ({p.X.nbytes/1e9:.1f}GB)")
     result = {"features": p.cols, "targets": {}}
-    for target in ("y_up", "y_oc10"):
-        oos = walk_forward(p, target, months, rounds)
+    for target in ("y_up", "y_oc10", "y_lock"):
+        # 매수 불가 모델은 제외 판단용: 검증은 최근 4개월만(시간 절약), 확률 보정만 필요
+        oos = walk_forward(p, target, months if target != "y_lock" else min(months, 4), rounds)
         stats = summarize(oos, target)
         print(f"[model] {target} OOS: {json.dumps({k: v for k, v in stats.items() if k not in ('buckets', 'monthly')}, ensure_ascii=False)}", flush=True)
         iso = fit_calibrator(oos, target)
