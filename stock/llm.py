@@ -26,6 +26,11 @@ def _client():
         return None
 
 
+def _text(msg) -> str:
+    """사고 블록을 건너뛰고 텍스트 블록만 이어 붙인다."""
+    return "".join(getattr(b, "text", "") or "" for b in msg.content if getattr(b, "type", "") == "text")
+
+
 def annotate(items: list[dict], side: str) -> None:
     cli = _client()
     if cli is None or not items:
@@ -41,12 +46,12 @@ def annotate(items: list[dict], side: str) -> None:
     try:
         with cli.beta.messages.stream(model=MODEL, max_tokens=4000, system=SYSTEM, betas=BETAS, fallbacks="default",
                                       messages=[{"role": "user", "content": prompt}]) as s:
-            text = s.get_final_message().content[0].text
+            text = _text(s.get_final_message())
     except Exception as e:  # noqa: BLE001
         try:
             r = cli.messages.create(model=MODEL, max_tokens=4000, system=SYSTEM,
                                     messages=[{"role": "user", "content": prompt}])
-            text = r.content[0].text
+            text = _text(r)
         except Exception as e2:  # noqa: BLE001
             print(f"[llm] fail: {e} / {e2}")
             return
