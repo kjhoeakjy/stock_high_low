@@ -112,7 +112,9 @@ def walk_forward(p: Panel, target: str, months: int = 12, rounds: int = ROUNDS) 
         pr = mdl.predict(p.X[ti]).astype("float32")
         o = pd.DataFrame({"code": p.code[ti], "date": p.date[ti], "next_date": p.next_date[ti],
                           target: y[ti], "close": p.close[ti], "p": pr,
-                          "y_gap": p.y_gap[ti], "y_oc": p.y_oc[ti], "ret1": p.X[ti, p.cols.index("ret1")]})
+                          "y_gap": p.y_gap[ti], "y_oc": p.y_oc[ti], "ret1": p.X[ti, p.cols.index("ret1")],
+                          "y_up": p.y["y_up"][ti], "pref": p.X[ti, p.cols.index("is_pref")],
+                          "val": np.expm1(p.X[ti, p.cols.index("logval")])})
         outs.append(o)
         print(f"[wf {target}] {m} train={int(tr.sum())} pos={int(y[tr].sum())} test={len(ti)} "
               f"pos={int(y[ti].sum())} ap={average_precision_score(y[ti], pr):.4f} {time.time()-t0:.0f}s", flush=True)
@@ -121,7 +123,41 @@ def walk_forward(p: Panel, target: str, months: int = 12, rounds: int = ROUNDS) 
     return pd.concat(outs, ignore_index=True)
 
 
+COST = 0.0053  # 왕복 거래비용 가정: 거래세 0.20% + 수수료 0.03% + 체결 미끄러짐 0.30%(매수·매도 합계)
+MIN_VAL = 1e9  # 후보 최소 거래대금(전일)
+
+
+def tradable(df: pd.DataFrame) -> pd.DataFrame:
+    """화면 후보와 동일한 사전 필터: 보통주, 전일 거래대금 10억 이상."""
+    if "pref" in df.columns and "val" in df.columns:
+        return df[(df["pref"] == 0) & (df["val"] >= MIN_VAL)]
+    return df
+
+
+def net_policy(oos: pd.DataFrame, k: int = 5, q: float = 0.3, warm: int = 20) -> dict:
+    """상위 k 시가 매수·종가 매도 순수익(비용 차감)과 미거래일 규칙.
+    규칙: 그날 상위 k의 평균 점수가 직전 거래일들의 하위 q 분위 미만이면 거래하지 않음(확장 창, 초기 warm일은 거래)."""
+    t = oos.sort_values(["date", "p"], ascending=[True, False]).groupby("date").head(k)
+    buy = t[t["y_gap"] < 0.295]
+    day = pd.DataFrame({"score": t.groupby("date")["p"].mean()})
+    day["net"] = (buy.groupby("date")["y_oc"].mean() - COST).reindex(day.index).fillna(0.0)
+    day["n_buy"] = buy.groupby("date").size().reindex(day.index).fillna(0).astype(int)
+    day = day.sort_index()
+    thr = day["score"].expanding().quantile(q).shift(1)
+    day["trade"] = (day.index.isin(day.index[:warm])) | (day["score"] >= thr.fillna(-np.inf))
+    tr = day[day["trade"]]
+    return {"cost": COST, "k": k, "days": int(len(day)),
+            "all_day": float(day["net"].mean()), "all_cum": float(day["net"].sum()),
+            "all_loss_days": float((day["net"] < 0).mean()), "all_worst": float(day["net"].min()),
+            "trade_frac": float(day["trade"].mean()), "trade_day": float(tr["net"].mean()) if len(tr) else None,
+            "trade_cum": float(tr["net"].sum()), "trade_loss_days": float((tr["net"] < 0).mean()) if len(tr) else None,
+            "trade_worst": float(tr["net"].min()) if len(tr) else None,
+            "skip_day": float(day.loc[~day["trade"], "net"].mean()) if (~day["trade"]).any() else None,
+            "daily": [{"d": str(i), "net": round(float(r.net), 4), "trade": bool(r.trade)} for i, r in day.iterrows()]}
+
+
 def summarize(oos: pd.DataFrame, target: str) -> dict:
+    oos = tradable(oos).reset_index(drop=True)
     y, p = oos[target].to_numpy(), oos["p"].to_numpy()
     res = {"n": int(len(y)), "pos": int(y.sum()), "base_rate": float(y.mean()),
            "ap": float(average_precision_score(y, p)), "auc": float(roc_auc_score(y, p)),
@@ -147,6 +183,10 @@ def summarize(oos: pd.DataFrame, target: str) -> dict:
         res[f"up5@{k}"] = float((cc >= 0.05).mean())
         res[f"oc10@{k}"] = float((oc[gap < 0.295] >= 0.10).mean()) if (gap < 0.295).any() else None
         res[f"oc5@{k}"] = float((oc[gap < 0.295] >= 0.05).mean()) if (gap < 0.295).any() else None
+        if "y_up" in tops.columns:
+            res[f"up@{k}"] = float(tops["y_up"].astype(float).mean())
+            res[f"net@{k}"] = float((oc[gap < 0.295] - COST).mean()) if (gap < 0.295).any() else None
+    res["net"] = net_policy(oos, 5)
     bins = [0, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5, 1.01]
     cut = pd.cut(p, bins, right=False)
     gap_all, oc_all = oos["y_gap"].astype(float).to_numpy(), oos["y_oc"].astype(float).to_numpy()
@@ -170,7 +210,9 @@ def summarize(oos: pd.DataFrame, target: str) -> dict:
                                "oc@5": float(t5.loc[t5["y_gap"] < 0.295, "y_oc"].astype(float).mean()),
                                "gap@5": float(t5["y_gap"].astype(float).mean()),
                                "up10@5": float((((1 + t5["y_gap"].astype(float)) * (1 + t5["y_oc"].astype(float)) - 1) >= 0.10).mean()),
-                               "up5@5": float((((1 + t5["y_gap"].astype(float)) * (1 + t5["y_oc"].astype(float)) - 1) >= 0.05).mean())})
+                               "up5@5": float((((1 + t5["y_gap"].astype(float)) * (1 + t5["y_oc"].astype(float)) - 1) >= 0.05).mean()),
+                               "up@5": float(t5["y_up"].astype(float).mean()) if "y_up" in t5.columns else None,
+                               "net@5": float((t5.loc[t5["y_gap"] < 0.295, "y_oc"].astype(float) - COST).mean())})
     return res
 
 

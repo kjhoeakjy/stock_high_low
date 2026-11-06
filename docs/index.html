@@ -99,7 +99,6 @@ td:first-child,th:first-child{text-align:left}
   </div>
   <div id="view-morning">
   <div class="mk" id="mk"></div>
-  <div class="tabs" style="margin:0 0 14px"><button class="on" onclick="setMode('all',this)">전체</button><button onclick="setMode('common',this)">보통주</button><button onclick="setMode('liquid',this)">보통주 10억 이상</button></div>
   <section style="max-width:960px">
     <h2 class="pos">상한가 후보</h2>
     <div class="h2sub" id="upsub"></div>
@@ -121,7 +120,7 @@ td:first-child,th:first-child{text-align:left}
   </div>
 
   <div class="foot">
-    <span id="rankline"></span>큰 숫자는 당일 종가 상한가 마감 확률. 시가 매수 수익은 검증표 참조. 전일 종가·야간 해외시장 기준, 장중 변동 미반영. 투자 권유 아님.<br>
+    <span id="rankline"></span>후보는 보통주·전일 거래대금 10억 이상·관리종목 제외. 큰 숫자는 당일 종가 상한가 마감 확률. 시가 매수 수익은 검증표 참조. 전일 종가·야간 해외시장 기준, 장중 변동 미반영. 투자 권유 아님.<br>
     자료: 네이버 금융(일봉·투자자별 매매·업종·테마·공시·뉴스), 야후 파이낸스(해외지수·환율), DART. 모델: LightGBM, 등온 보정.
   </div>
 </div>
@@ -273,7 +272,7 @@ function monthlySvg(m){
   if(!m.length) return '';
   const W=760,H=200,pad={l:8,r:70,t:44,b:26}, n=m.length, xw=(W-pad.l-pad.r)/n, ph=H-pad.t-pad.b;
   const rate=m.map(x=>x['p@5']!=null?x['p@5']:x['p@10']), top=Math.max(0.5,...rate), posmax=Math.max(1,...m.map(x=>x.pos));
-  let s=svgOpen(W,H)+`<text x="${pad.l}" y="16" fill="#8b919c" font-size="13">월별 상위5 적중률 · 상한가 발생 수(선)</text>`;
+  let s=svgOpen(W,H)+`<text x="${pad.l}" y="16" fill="#8b919c" font-size="13">${DATA&&DATA.stats.y_oc10?'월별 상위5 +10% 달성률 · 전체 +10% 종목 수(선)':'월별 상위5 적중률 · 상한가 발생 수(선)'}</text>`;
   [0.25,0.5].forEach(v=>{if(v<=top){const yy=pad.t+ph*(1-v/top); s+=`<line x1="${pad.l}" x2="${W-pad.r}" y1="${yy}" y2="${yy}" stroke="#262a33"/><text x="${W-pad.r+6}" y="${yy+4}" fill="#8b919c" font-size="12">${v*100}%</text>`;}});
   m.forEach((x,i)=>{const r=rate[i]||0, bh=ph*r/top, X=pad.l+xw*i; s+=`<rect x="${X+xw*.15}" y="${pad.t+ph-bh}" width="${xw*.7}" height="${bh}" fill="#ff4d4d" opacity=".8"/><text x="${X+xw/2}" y="${pad.t+ph-bh-4}" fill="#f2f3f5" font-size="12" text-anchor="middle">${Math.round(r*100)}%</text><text x="${X+xw/2}" y="${H-8}" fill="#8b919c" font-size="12" text-anchor="middle">${x.ym.slice(2,4)}.${x.ym.slice(4)}</text>`;});
   s+=`<polyline fill="none" stroke="#e0b64d" stroke-width="2" points="${m.map((x,i)=>`${pad.l+xw*(i+.5)},${pad.t+ph*(1-x.pos/posmax)}`).join(' ')}"/>`;
@@ -309,16 +308,20 @@ function perfSvg(pf){
   return info+s+'</svg>'+`<div class="ev">학습 데이터 ${(last.train_rows||0).toLocaleString()}행(최초 ${(first.train_rows||0).toLocaleString()}행) · 변수 ${last.n_features}개 · 검증 적중률 ${f(last['p@5']||0,1)}(최초 ${f(first['p@5']||0,1)})</div>`;
 }
 function stats(d){
-  const su=d.stats.y_up, g=document.getElementById('stat');
+  const trade=!!d.stats.y_oc10, su=trade?d.stats.y_oc10:d.stats.y_up, g=document.getElementById('stat');
   const kv=(b,s,d)=>`<div class="kv"><b>${b}</b><span>${s}</span>${d?`<small>${d}</small>`:''}</div>`;
-  g.innerHTML=kv(f(su['p@5'],0),'상위5 상한가 비율','매일 상위 5종목 중 익일 상한가 마감 비율')+(su['up10@5']!=null?kv(f(su['up10@5'],0),'상위5 +10% 이상','상위 5종목 중 익일 종가 +10% 이상 상승 비율'):'')+(su['up5@5']!=null?kv(f(su['up5@5'],0),'상위5 +5% 이상','상위 5종목 중 익일 종가 +5% 이상 상승 비율'):'')+(su['oc10@5']!=null?kv(f(su['oc10@5'],0),'시가 매수 +10% 이상','시가 매수 후 종가 +10% 이상 비율'):'')+(su['oc5@5']!=null?kv(f(su['oc5@5'],0),'시가 매수 +5% 이상','시가 매수 후 종가 +5% 이상 비율'):'')+kv(su['hits@5'].toFixed(2),'일평균 적중 수','하루 5종목 중 상한가 마감 종목 수')+kv(f(su.base_rate,2),'기준율','전 종목 중 무작위 선택 시 상한가 비율')+kv((su['p@5']/su.base_rate).toFixed(0)+'배','기준율 대비','적중률 ÷ 기준율')
-    +(su['open_to_close@5']!=null?kv(`<span class="${cls(su['oc_mean_ex_unbuyable@5'])}">${sgn(su['oc_mean_ex_unbuyable@5'])}</span>`,'시가 매수 평균 수익','익일 시가 매수·종가 매도 평균 수익률')+kv(sgn(su['open_gap@5']),'평균 시가 갭','익일 시가의 전일 종가 대비 평균 등락')+kv(f(su['unbuyable@5'],0),'시가 상한가 비율','시가부터 상한가라 매수 불가한 비율')+kv(f(su['oc_win@5'],0),'시가 매수 상승 마감','시가 매수 시 종가가 시가보다 높은 비율'):'')
+  const pct=v=>`<span class="${cls(v)}">${sgn(v)}</span>`, net=su.net||null;
+  const upRate=trade?su['up@5']:su['p@5'], tenRate=trade?su['p@5']:su['up10@5'];
+  g.innerHTML=(net&&net.trade_day!=null?kv(pct(net.trade_day),'거래일 평균 순수익','상위 5종목 시가 매수·종가 매도, 세금·수수료·미끄러짐 '+(net.cost*100).toFixed(2)+'% 차감')+kv(pct(net.trade_cum),'12개월 누적 순수익','거래일 순수익 합계(복리 미적용, 종목별 균등 배분)')+kv(f(1-net.trade_frac,0),'미거래일 비율','상위 5 평균 점수가 과거 하위 30% 미만인 날은 거래하지 않음')+kv(f(net.trade_loss_days,0),'손실일 비율','거래일 중 순수익이 음수인 날 비율')+kv(pct(net.trade_worst),'최악 거래일','거래일 중 최저 순수익'):'')
+    +(su['oc_mean_ex_unbuyable@5']!=null?kv(pct(su['oc_mean_ex_unbuyable@5']),'시가 매수 평균 수익(비용 전)','익일 시가 매수·종가 매도 평균 수익률'):'')
+    +(tenRate!=null?kv(f(tenRate,0),'상위5 +10% 이상','상위 5종목 중 익일 종가 +10% 이상 상승 비율'):'')+(su['up5@5']!=null?kv(f(su['up5@5'],0),'상위5 +5% 이상','상위 5종목 중 익일 종가 +5% 이상 상승 비율'):'')+(upRate!=null?kv(f(upRate,0),'상위5 상한가 비율','상위 5종목 중 익일 상한가 마감 비율'):'')
+    +(su['oc10@5']!=null?kv(f(su['oc10@5'],0),'시가 매수 +10% 이상','시가 매수 후 종가 +10% 이상 비율'):'')+(su['oc_win@5']!=null?kv(f(su['oc_win@5'],0),'시가 매수 상승 마감','시가 매수 시 종가가 시가보다 높은 비율'):'')+(su['unbuyable@5']!=null?kv(f(su['unbuyable@5'],0),'시가 상한가 비율','시가부터 상한가라 매수 불가한 비율'):'')+(su['open_gap@5']!=null?kv(sgn(su['open_gap@5']),'평균 시가 갭','익일 시가의 전일 종가 대비 평균 등락'):'')
 ;
-  const bt=(s)=>`<table><tr><th>모델 확률</th><th>건수</th><th>적중률</th></tr>${s.buckets.map(b=>`<tr><td>${pf(b.lo)} ~ ${pf(Math.min(b.hi,1))}</td><td>${b.n.toLocaleString()}</td><td>${pf(b.rate)}</td></tr>`).join('')}</table>
-    <table><tr><th>월</th><th>거래일</th><th>상한가 발생</th><th>상위5 적중률</th><th>+10% 이상</th><th>시가 갭</th><th>시가 매수 수익</th></tr>${s.monthly.map(m=>`<tr><td>${m.ym.slice(0,4)}.${m.ym.slice(4)}</td><td>${m.days}</td><td>${m.pos}</td><td>${f(m['p@5'],0)}</td><td>${m['up10@5']!=null?f(m['up10@5'],0):'-'}</td><td class="${cls(m['gap@5'])}">${m['gap@5']==null?'':sgn(m['gap@5'])}</td><td class="${cls(m['oc@5'])}">${m['oc@5']==null?'':sgn(m['oc@5'])}</td></tr>`).join('')}</table>`;
+  const bt=(s)=>`<table><tr><th>모델 확률</th><th>건수</th><th>${trade?'+10% 달성률':'적중률'}</th></tr>${s.buckets.map(b=>`<tr><td>${pf(b.lo)} ~ ${pf(Math.min(b.hi,1))}</td><td>${b.n.toLocaleString()}</td><td>${pf(b.rate)}</td></tr>`).join('')}</table>
+    <table><tr><th>월</th><th>거래일</th><th>${trade?'+10% 종목 수':'상한가 발생'}</th><th>${trade?'상위5 +10%':'상위5 적중률'}</th><th>${trade?'상위5 상한가':'+10% 이상'}</th><th>시가 갭</th><th>시가 매수 수익</th><th>순수익</th></tr>${s.monthly.map(m=>`<tr><td>${m.ym.slice(0,4)}.${m.ym.slice(4)}</td><td>${m.days}</td><td>${m.pos}</td><td>${f(m['p@5'],0)}</td><td>${trade?(m['up@5']!=null?f(m['up@5'],0):'-'):(m['up10@5']!=null?f(m['up10@5'],0):'-')}</td><td class="${cls(m['gap@5'])}">${m['gap@5']==null?'':sgn(m['gap@5'])}</td><td class="${cls(m['oc@5'])}">${m['oc@5']==null?'':sgn(m['oc@5'])}</td><td class="${cls(m['net@5'])}">${m['net@5']==null?'':sgn(m['net@5'])}</td></tr>`).join('')}</table>`;
   document.getElementById('h-up').innerHTML=bt(su);
   const imp=(t)=>Object.entries(d.importance[t]).slice(0,25).map(([k,v])=>`<tr><td>${k}</td><td>${Math.round(v).toLocaleString()}</td></tr>`).join('');
-  document.getElementById('h-imp').innerHTML=`<table><tr><th>변수</th><th>기여</th></tr>${imp('y_up')}</table>`;
+  document.getElementById('h-imp').innerHTML=`<table><tr><th>변수</th><th>기여</th></tr>${imp(trade?'y_oc10':'y_up')}</table>`;
   document.getElementById('perfsub').textContent=`매일 재학습 · 학습 데이터 ${(d.train_rows||0).toLocaleString()}행(${(d.train_from||'').slice(0,4)}년 이후) · 변수 ${d.n_features} · 검증 ${su.days}거래일 워크포워드`;
   document.getElementById('monthly').innerHTML=monthlySvg(su.monthly||[]);
   document.getElementById('h-perf').innerHTML=perfSvg(d.perf||[]);

@@ -242,6 +242,9 @@ def score_today(today: pd.DataFrame, res: dict, universe: list[dict], recent_p=N
     over = _load_json("overnight.json") or {}
     halted |= {c for c, v in status.items() if v.get("halt")}
     today = today[(today["volume"] > 0) & ~today["code"].isin(halted)]
+    # 사전 필터(당일 매수·매도 전제): 보통주, 전일 거래대금 10억 이상, 관리종목·투자위험 제외
+    risky = {c for c, v in status.items() if v.get("managed") or (v.get("alert") or 0) >= 3}
+    today = today[(today["is_pref"] == 0) & (np.expm1(today["logval"]) >= 1e9) & ~today["code"].isin(risky)]
     out = {"as_of": last_date, "up": [], "n_scored": int(len(today))}
     try:
         dart = json.loads((DATA / "dart_today.json").read_text())
@@ -367,6 +370,8 @@ def _append_perf(doc: dict, st: dict) -> list[dict]:
            "p@5": st.get("p@5"), "p@10": st.get("p@10"), "ap": st.get("ap"), "auc": st.get("auc"),
            "base_rate": st.get("base_rate"), "oc@5": st.get("oc_mean_ex_unbuyable@5"), "unb@5": st.get("unbuyable@5"),
            "up10@5": st.get("up10@5"), "oc10@5": st.get("oc10@5"), "up5@5": st.get("up5@5"), "oc5@5": st.get("oc5@5"),
+           "up@5": st.get("up@5"), "net@5": st.get("net@5"),
+           "net_trade_day": (st.get("net") or {}).get("trade_day"), "net_trade_frac": (st.get("net") or {}).get("trade_frac"),
            "live_days": len(graded), "live_n": live_n, "live_hits": live_hits,
            "live_rate": (live_hits / live_n) if live_n else None, "live_10": live_10,
            "live_rate10": (live_10 / live_n) if live_n else None}
@@ -404,7 +409,7 @@ def write(last: pd.DataFrame, actual: pd.DataFrame, res: dict, universe: list[di
     hist_doc = {**doc, "up": [{k: v for k, v in it.items() if k not in ("chart", "analysis", "groups", "evidence", "llm")} for it in doc["up"]]}
     crypt.write_json(OUT / "history" / f"{target_date}.json", hist_doc)
     doc["history"] = grade_history(actual)
-    doc["perf"] = _append_perf(doc, stats["y_up"])
+    doc["perf"] = _append_perf(doc, stats.get("y_oc10") or stats["y_up"])
     crypt.write_json(OUT / "latest.json", doc)
     # 전 종목 점수(검색용, 가벼운 버전)
     slim = scored[["code", "close", "ret1", "p_up", "p_oc", "raw_oc"]].copy()
