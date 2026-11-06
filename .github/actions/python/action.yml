@@ -18,27 +18,32 @@ runs:
       shell: bash
       run: echo "PIPCMD=python -m pip install" >> "$GITHUB_ENV"
     - if: runner.os == 'Windows'
-      shell: bash
+      shell: powershell
       run: |
-        set -e
-        TOOL=$(cygpath -u "$RUNNER_TOOL_CACHE"); mkdir -p "$TOOL"
-        UV="$TOOL/uv"
-        if [ ! -x "$UV/uv.exe" ]; then
-          mkdir -p "$UV"
-          curl -sSL -o "$UV/uv.zip" https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip
-          tar -xf "$UV/uv.zip" -C "$UV" && rm -f "$UV/uv.zip"
-        fi
-        export UV_PYTHON_INSTALL_DIR=$(cygpath -w "$TOOL/uv-python") UV_CACHE_DIR=$(cygpath -w "$TOOL/uv-cache")
-        VENV="$TOOL/venv312"
-        [ -x "$VENV/Scripts/python.exe" ] || "$UV/uv.exe" venv "$(cygpath -w "$VENV")" --python 3.12
-        PY=$(cygpath -w "$VENV/Scripts/python.exe")
-        "$PY" --version
-        {
-          echo "UV_PYTHON_INSTALL_DIR=$UV_PYTHON_INSTALL_DIR"; echo "UV_CACHE_DIR=$UV_CACHE_DIR"
-          echo "VIRTUAL_ENV=$(cygpath -w "$VENV")"
-          echo "PIPCMD=$(cygpath -w "$UV/uv.exe") pip install --python $PY"
-        } >> "$GITHUB_ENV"
-        echo "$(cygpath -w "$VENV/Scripts")" >> "$GITHUB_PATH"
+        $ErrorActionPreference = "Stop"
+        # Git Bash를 PATH 앞에(러너 서비스 계정은 WSL bash.exe가 먼저 잡힘)
+        $gitexe = (Get-Command git).Source
+        $gitroot = Split-Path (Split-Path $gitexe)
+        foreach ($d in @("$gitroot\bin", "$gitroot\usr\bin")) { if (Test-Path $d) { Add-Content $env:GITHUB_PATH $d } }
+        $tool = $env:RUNNER_TOOL_CACHE
+        $uv = "$tool\uv"
+        if (!(Test-Path "$uv\uv.exe")) {
+          New-Item -ItemType Directory -Force $uv | Out-Null
+          Invoke-WebRequest -Uri https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip -OutFile "$uv\uv.zip"
+          Expand-Archive "$uv\uv.zip" -DestinationPath $uv -Force
+          Remove-Item "$uv\uv.zip"
+        }
+        $env:UV_PYTHON_INSTALL_DIR = "$tool\uv-python"
+        $env:UV_CACHE_DIR = "$tool\uv-cache"
+        $venv = "$tool\venv312"
+        if (!(Test-Path "$venv\Scripts\python.exe")) { & "$uv\uv.exe" venv $venv --python 3.12; if ($LASTEXITCODE) { exit $LASTEXITCODE } }
+        $py = "$venv\Scripts\python.exe"
+        & $py --version
+        Add-Content $env:GITHUB_ENV "UV_PYTHON_INSTALL_DIR=$($env:UV_PYTHON_INSTALL_DIR)"
+        Add-Content $env:GITHUB_ENV "UV_CACHE_DIR=$($env:UV_CACHE_DIR)"
+        Add-Content $env:GITHUB_ENV "VIRTUAL_ENV=$venv"
+        Add-Content $env:GITHUB_ENV "PIPCMD=$uv\uv.exe pip install --python $py"
+        Add-Content $env:GITHUB_PATH "$venv\Scripts"
     - shell: bash
       run: |
         set -e
