@@ -241,6 +241,8 @@ def score_today(today: pd.DataFrame, res: dict, universe: list[dict], recent_p=N
     over = _load_json("overnight.json") or {}
     halted |= {c for c, v in status.items() if v.get("halt")}
     today = today[(today["volume"] > 0) & ~today["code"].isin(halted)]
+    # 전일 상한가 종목 제외: 시가부터 상한가로 막혀 매수 불가한 경우가 많아 아침 매수 후보로 의미 없음(사용자 결정 2026-11-06)
+    today = today[today["ret1"] < 0.295]
     out = {"as_of": last_date, "up": [], "n_scored": int(len(today))}
     try:
         dart = json.loads((DATA / "dart_today.json").read_text())

@@ -112,7 +112,7 @@ td:first-child,th:first-child{text-align:left}
   </div>
 
   <div class="foot">
-    <span id="rankline"></span>큰 숫자는 당일 종가 상한가 마감 확률. 시가 매수 수익은 검증표 참조. 전일 종가·야간 해외시장 기준, 장중 변동 미반영. 투자 권유 아님.<br>
+    <span id="rankline"></span>전일 상한가 종목 제외. 큰 숫자는 당일 종가 상한가 마감 확률. 시가 매수 수익은 검증표 참조. 전일 종가·야간 해외시장 기준, 장중 변동 미반영. 투자 권유 아님.<br>
     자료: 네이버 금융(일봉·투자자별 매매·업종·테마·공시·뉴스), 야후 파이낸스(해외지수·환율), DART. 모델: LightGBM, 등온 보정.
   </div>
 </div>
@@ -137,7 +137,7 @@ async function loadLive(){
   if(d.market.KOSPI)mk.insertAdjacentHTML('beforeend',`<div><b>코스피</b><span class="${cls(d.market.KOSPI.r1)}">${sgn(d.market.KOSPI.r1)}</span></div>`);
   if(d.market.KOSDAQ)mk.insertAdjacentHTML('beforeend',`<div><b>코스닥</b><span class="${cls(d.market.KOSDAQ.r1)}">${sgn(d.market.KOSDAQ.r1)}</span></div>`);
   mk.insertAdjacentHTML('beforeend',`<div><b>상한가</b>${d.n_limit}</div><div><b>10%↑</b>${d.n_up10}</div>${d.up_ratio!=null?`<div><b>상승 비율</b>${Math.round(d.up_ratio*100)}%</div>`:''}`);
-  const st=x=>`<span class="st ${x.status=='상한가'?'lim':''}">${x.status}</span>`;
+  const st=x=>`<span class="st ${x.status=='상한가'?'lim':''}">${x.status}</span>${x.gap!=null&&x.gap>=0.295?'<br><small style="color:var(--mut)">시가 상한가 · 매수 불가</small>':''}`;
   const row=(x,i,withRank)=>`<tr><td class="l">${withRank?`<span class="rank">${x.morning_rank||i+1}</span>`:''}<b>${x.name}</b>${x.pref?' <small style="color:var(--mut)">우선주</small>':''}</td><td>${x.p!=null?pf(x.p):'-'}</td><td>${x.price.toLocaleString()}</td><td class="big ${cls(x.ret)}">${sgn(x.ret)}</td><td class="${cls(x.o_ret)}">${x.o_ret==null?'-':sgn(x.o_ret)}</td><td>${x.hi_ret==null?'-':sgn(x.hi_ret)}</td><td>${x.status=='상한가'?'도달':f(x.to_limit,1)}</td><td>${x.val!=null?won(x.val):'-'}</td><td>${st(x)}</td></tr>`;
   const head=`<tr><th class="l">종목</th><th>장전 확률</th><th>현재가</th><th>등락률</th><th>시가 대비</th><th>고가</th><th>상한가 괴리</th><th>거래대금</th><th>상태</th></tr>`;
   const tbl=(rows,withRank)=>rows.length?`<table class="lv">${head}${rows.map((x,i)=>row(x,i,withRank)).join('')}</table>`:'<div class="ev" style="margin-bottom:18px">없음</div>';
