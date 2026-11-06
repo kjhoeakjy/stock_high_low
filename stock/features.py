@@ -316,11 +316,12 @@ def _group_feats(df: pd.DataFrame, groups: dict, kind: str, pre: str) -> pd.Data
 
 
 EXCLUDE = {"code", "date", "open", "high", "low", "close", "volume", "mcap", "y_up", "y_dn",
-           "y_touch_up", "y_ret", "y_gap", "y_oc", "next_date", "name"}
+           "y_touch_up", "y_ret", "y_gap", "y_oc", "y_ocx", "next_date", "name"}
 
 
 def feature_cols(df: pd.DataFrame) -> list[str]:
-    return [c for c in df.columns if c not in EXCLUDE and df[c].dtype.kind in "fiu"]
+    """특징 열: 키·가격 원자료·라벨(y_로 시작하는 모든 열) 제외. 라벨 열이 변수로 새어 들어가면 검증이 무의미해진다."""
+    return [c for c in df.columns if c not in EXCLUDE and not c.startswith("y_") and df[c].dtype.kind in "fiu"]
 
 
 def load_all():
