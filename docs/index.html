@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>good luck</title>
+<title>GOOD LUCK</title>
 <style>
 :root{--bg:#0f1115;--fg:#f2f3f5;--mut:#8b919c;--up:#ff4d4d;--dn:#4d8cff;--card:#171a21;--line:#262a33;--chip:#222631}
 *{box-sizing:border-box}
@@ -78,7 +78,7 @@ td:first-child,th:first-child{text-align:left}
 </head>
 <body>
 <div class="wrap">
-  <h1 id="title">good luck</h1>
+  <h1 id="title">GOOD LUCK</h1>
   <div class="sub" id="sub">데이터 조회 중</div>
   <div class="tabs top" id="toptabs"><button class="on" onclick="setView('morning',this)">장전 후보</button><button onclick="setView('live',this)">실시간</button></div>
   <div id="view-live" style="display:none">
@@ -154,7 +154,7 @@ async function main(){
   const r=await fetch('latest.json?'+Date.now());const d=await r.json();DATA=d;
   const td=d.target_date, as=d.as_of;
   const fmt=s=>`${s.slice(0,4)}.${s.slice(4,6)}.${s.slice(6,8)}`;
-  document.getElementById('title').textContent=`good luck · ${fmt(td)}`;
+  document.getElementById('title').textContent=`GOOD LUCK · ${fmt(td)}`;
   document.getElementById('sub').textContent=`${fmt(as)} 종가 기준 · ${d.n_scored.toLocaleString()}종목 중 5 · ${d.generated_at.slice(11)} 생성`;
   const m=d.market, mk=document.getElementById('mk');
   const names={KOSPI:'코스피',KOSDAQ:'코스닥',NASDAQ:'나스닥',SOX:'반도체',USDKRW:'환율',VIX:'VIX'};
