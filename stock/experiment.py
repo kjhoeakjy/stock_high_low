@@ -49,6 +49,17 @@ CONFIGS = {
     "blend": {"blend": True},                # 이진 + 랭킹 순위 평균
     "seeds3": {"n_seeds": 3},
     "touch": {"target": "touch"},            # 장중 터치 자체를 예측
+    # 2차: 단타 수익(시가→종가) 지향 조합
+    "oc5": {"target": "oc5"},
+    "oc15": {"target": "oc15"},
+    "oc10_hn": {"target": "oc10", "hard_neg": 3.0},
+    "oc10_nr": {"target": "oc10", "recency": False},
+    "oc10_hn_nr": {"target": "oc10", "hard_neg": 3.0, "recency": False},
+    "oc10_full": {"target": "oc10", "hard_neg": 3.0, "recency": False, "params": {"feature_fraction": 0.5}},
+    "hn_nr": {"hard_neg": 3.0, "recency": False},
+    "hn_nr_ff05": {"hard_neg": 3.0, "recency": False, "params": {"feature_fraction": 0.5}},
+    "mix": {"mix": True},                    # 상한가 모델 + oc10 모델 순위 평균
+    "mix_hn": {"mix": True, "hard_neg": 3.0, "recency": False},
 }
 
 
@@ -65,8 +76,8 @@ def labels(p: Panel, target: str):
     if target == "up_buyable":
         y = ((yu == 1) & (p.y_gap < 0.295)).astype("int8")
         return y, valid & ~np.isnan(p.y_gap)
-    if target == "oc10":
-        y = (p.y_oc >= 0.10).astype("int8")
+    if target.startswith("oc") and target[2:].isdigit():
+        y = (p.y_oc >= int(target[2:]) / 100).astype("int8")
         return y, valid & ~np.isnan(p.y_oc)
     if target == "oc_reg":
         y = np.clip(np.nan_to_num(p.y_oc, nan=0.0), -0.3, 0.3).astype("float32")
@@ -164,6 +175,12 @@ def run(name: str, p: Panel, months: int, seed: int = 0) -> dict:
             yt, vt = labels(p, "touch")
             yh, vh = labels(p, "up_hold")
             pr = _pred({}, yt, tr & vt) * _pred({}, yh, tr & vh)
+        elif cfg.get("mix"):
+            sub = {k: v for k, v in cfg.items() if k != "mix"}
+            yo, vo = labels(p, "oc10")
+            a, b = _pred(sub, y_all, tr), _pred(sub, yo, tr & vo)
+            d = pd.DataFrame({"date": p.date[ti], "a": a, "b": b})
+            pr = (d.groupby("date")["a"].rank(pct=True) + d.groupby("date")["b"].rank(pct=True)).to_numpy("float32") / 2
         elif cfg.get("blend"):
             a, b = _pred({}, y_all, tr), _pred({"objective": "lambdarank"}, y_all, tr)
             d = pd.DataFrame({"date": p.date[ti], "a": a, "b": b})
