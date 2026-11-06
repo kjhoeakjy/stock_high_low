@@ -44,8 +44,10 @@ class Panel:
         self.y = {t: df[t].to_numpy("int8") for t in ("y_up", "y_touch_up")}
         self.y_gap = df["y_gap"].to_numpy("float32")
         self.y_oc = df["y_oc"].to_numpy("float32")
-        # 단타 라벨: 익일 시가 매수 → 종가 +10% 이상(실험 결과 시가 매수 수익에 가장 유리)
-        self.y["y_oc10"] = np.where(np.isnan(self.y_oc) | (self.y["y_up"] < 0), -1, (self.y_oc >= 0.10)).astype("int8")
+        # 매도 규칙 수익(상한가 도달 즉시 매도, 아니면 종가). 없으면 종가 기준
+        self.y_ocx = df["y_ocx"].to_numpy("float32") if "y_ocx" in df.columns else self.y_oc
+        # 단타 라벨: 익일 시가 매수 → 매도 규칙 수익 +10% 이상
+        self.y["y_oc10"] = np.where(np.isnan(self.y_ocx) | (self.y["y_up"] < 0), -1, (self.y_ocx >= 0.10)).astype("int8")
         # 시가 상한가(매수 불가) 라벨: 익일 시가가 이미 상한가
         self.y["y_lock"] = np.where(np.isnan(self.y_gap) | (self.y["y_up"] < 0), -1, (self.y_gap >= 0.295)).astype("int8")
         self.next_date = df["next_date"].to_numpy()
@@ -112,7 +114,7 @@ def walk_forward(p: Panel, target: str, months: int = 12, rounds: int = ROUNDS) 
         pr = mdl.predict(p.X[ti]).astype("float32")
         o = pd.DataFrame({"code": p.code[ti], "date": p.date[ti], "next_date": p.next_date[ti],
                           target: y[ti], "close": p.close[ti], "p": pr,
-                          "y_gap": p.y_gap[ti], "y_oc": p.y_oc[ti], "ret1": p.X[ti, p.cols.index("ret1")],
+                          "y_gap": p.y_gap[ti], "y_oc": p.y_oc[ti], "y_ocx": p.y_ocx[ti], "ret1": p.X[ti, p.cols.index("ret1")],
                           "y_up": p.y["y_up"][ti], "pref": p.X[ti, p.cols.index("is_pref")],
                           "val": np.expm1(p.X[ti, p.cols.index("logval")])})
         outs.append(o)
@@ -140,7 +142,7 @@ def net_policy(oos: pd.DataFrame, k: int = 5, q: float = 0.3, warm: int = 20) ->
     t = oos.sort_values(["date", "p"], ascending=[True, False]).groupby("date").head(k)
     buy = t[t["y_gap"] < 0.295]
     day = pd.DataFrame({"score": t.groupby("date")["p"].mean()})
-    day["net"] = (buy.groupby("date")["y_oc"].mean() - COST).reindex(day.index).fillna(0.0)
+    day["net"] = (buy.groupby("date")["y_ocx"].mean() - COST).reindex(day.index).fillna(0.0)
     day["n_buy"] = buy.groupby("date").size().reindex(day.index).fillna(0).astype(int)
     day = day.sort_index()
     thr = day["score"].expanding().quantile(q).shift(1)
@@ -197,7 +199,7 @@ def sim_capital(oos: pd.DataFrame, k: int = 5, start: float = START_CAPITAL, tra
         buyable = np.nan_to_num(gap, nan=1.0) < 0.295
         n = allocate(g["p"].to_numpy("float64"), open_, cap, buyable)
         spent = float((n * open_).sum())
-        pnl = float((n * open_ * np.nan_to_num(g["y_oc"].to_numpy("float64"), nan=0.0)).sum()) - spent * COST
+        pnl = float((n * open_ * np.nan_to_num(g["y_ocx"].to_numpy("float64"), nan=0.0)).sum()) - spent * COST
         ret = pnl / cap if cap > 0 else 0.0
         cap += pnl
         peak = max(peak, cap)
@@ -224,7 +226,7 @@ def summarize(oos: pd.DataFrame, target: str) -> dict:
     sign = 1.0
     for k in (5, 10):
         tops = oos.groupby("date", group_keys=False).apply(lambda g: g.nlargest(k, "p"))
-        gap, oc = tops["y_gap"].astype(float), tops["y_oc"].astype(float)
+        gap, oc, occ = tops["y_gap"].astype(float), tops["y_ocx"].astype(float), tops["y_oc"].astype(float)
         res[f"open_gap@{k}"] = float(gap.mean())
         res[f"open_to_close@{k}"] = float(oc.mean())
         res[f"oc_win@{k}"] = float(((sign * oc) > 0).mean())
@@ -232,7 +234,7 @@ def summarize(oos: pd.DataFrame, target: str) -> dict:
         res[f"unbuyable@{k}"] = float(((sign * gap) >= 0.295).mean())
         res[f"oc_mean_ex_unbuyable@{k}"] = float(oc[(sign * gap) < 0.295].mean()) if ((sign * gap) < 0.295).any() else None
         # 상한가 외 상승 지표: 익일 종가 +10% 이상 비율, 시가 매수 후 종가 +10% 이상 비율(시가 상한가 제외)
-        cc = (1 + gap) * (1 + oc) - 1
+        cc = (1 + gap) * (1 + occ) - 1
         res[f"up10@{k}"] = float((cc >= 0.10).mean())
         res[f"up5@{k}"] = float((cc >= 0.05).mean())
         res[f"oc10@{k}"] = float((oc[gap < 0.295] >= 0.10).mean()) if (gap < 0.295).any() else None
@@ -247,7 +249,7 @@ def summarize(oos: pd.DataFrame, target: str) -> dict:
     res["sim_policy"].pop("daily", None)
     bins = [0, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5, 1.01]
     cut = pd.cut(p, bins, right=False)
-    gap_all, oc_all = oos["y_gap"].astype(float).to_numpy(), oos["y_oc"].astype(float).to_numpy()
+    gap_all, oc_all = oos["y_gap"].astype(float).to_numpy(), oos["y_ocx"].astype(float).to_numpy()
     tab = pd.DataFrame({"y": y, "b": cut, "gap": gap_all, "oc": oc_all})
     res["buckets"] = []
     for i, g in tab.groupby("b", observed=True):
@@ -263,14 +265,14 @@ def summarize(oos: pd.DataFrame, target: str) -> dict:
         t5 = g.groupby("date", group_keys=False).apply(lambda x: x.nlargest(5, "p"))
         res["monthly"].append({"ym": m, "p@10": precision_at_k(g, "p", target, 10)[0], "p@5": precision_at_k(g, "p", target, 5)[0],
                                "pos": int(g[target].sum()),
-                               "days": int(g["date"].nunique()), "oc@10": float(t10["y_oc"].astype(float).mean()),
+                               "days": int(g["date"].nunique()), "oc@10": float(t10["y_ocx"].astype(float).mean()),
                                "gap@10": float(t10["y_gap"].astype(float).mean()),
-                               "oc@5": float(t5.loc[t5["y_gap"] < 0.295, "y_oc"].astype(float).mean()),
+                               "oc@5": float(t5.loc[t5["y_gap"] < 0.295, "y_ocx"].astype(float).mean()),
                                "gap@5": float(t5["y_gap"].astype(float).mean()),
                                "up10@5": float((((1 + t5["y_gap"].astype(float)) * (1 + t5["y_oc"].astype(float)) - 1) >= 0.10).mean()),
                                "up5@5": float((((1 + t5["y_gap"].astype(float)) * (1 + t5["y_oc"].astype(float)) - 1) >= 0.05).mean()),
                                "up@5": float(t5["y_up"].astype(float).mean()) if "y_up" in t5.columns else None,
-                               "net@5": float((t5.loc[t5["y_gap"] < 0.295, "y_oc"].astype(float) - COST).mean())})
+                               "net@5": float((t5.loc[t5["y_gap"] < 0.295, "y_ocx"].astype(float) - COST).mean())})
     return res
 
 

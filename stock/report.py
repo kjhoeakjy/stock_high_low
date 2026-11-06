@@ -318,7 +318,9 @@ def grade_history(actual: pd.DataFrame) -> list[dict]:
                     r = a.loc[it["code"]]
                     it["actual_ret"] = float(r["ret1"])
                     it["actual_gap"] = float(r["gap"]) if pd.notna(r["gap"]) else None
-                    it["actual_oc"] = float((1 + r["ret1"]) / (1 + r["gap"]) - 1) if pd.notna(r["gap"]) else None
+                    # 매도 규칙(상한가 도달 즉시 매도, 아니면 종가) 기준 시가 매수 수익
+                    ex = r["hi_ret"] if r["hi_ret"] >= 0.295 else r["ret1"]
+                    it["actual_oc"] = float((1 + ex) / (1 + r["gap"]) - 1) if pd.notna(r["gap"]) else None
                     it["hit"] = bool(r["ret1"] >= 0.295)
                     it["touch"] = bool(r["hi_ret"] >= 0.295)
         if a is not None and len(a):

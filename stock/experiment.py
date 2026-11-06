@@ -101,13 +101,13 @@ def labels(p: Panel, target: str):
         y = ((yu == 1) & (p.y_gap < 0.295)).astype("int8")
         return y, valid & ~np.isnan(p.y_gap)
     if target.startswith("oc") and target[2:].isdigit():
-        y = (p.y_oc >= int(target[2:]) / 100).astype("int8")
-        return y, valid & ~np.isnan(p.y_oc)
+        y = (p.y_ocx >= int(target[2:]) / 100).astype("int8")
+        return y, valid & ~np.isnan(p.y_ocx)
     if target == "oc_grade":  # 시가 매수 수익 등급: 매수 불가·하락 0, 0~5% 1, 5~10% 2, 10%↑ 3
-        oc = np.nan_to_num(p.y_oc, nan=-1.0)
+        oc = np.nan_to_num(p.y_ocx, nan=-1.0)
         g = np.where(oc >= 0.10, 3, np.where(oc >= 0.05, 2, np.where(oc >= 0, 1, 0)))
         g = np.where(np.nan_to_num(p.y_gap, nan=1.0) >= 0.295, 0, g)
-        return g.astype("int8"), valid & ~np.isnan(p.y_oc)
+        return g.astype("int8"), valid & ~np.isnan(p.y_ocx)
     if target == "oc_reg":
         y = np.clip(np.nan_to_num(p.y_oc, nan=0.0), -0.3, 0.3).astype("float32")
         return y, valid & ~np.isnan(p.y_oc)
@@ -209,11 +209,11 @@ def evaluate(oos: pd.DataFrame, k: int = 5) -> dict:
         tops = d.sort_values(["date", "p"], ascending=[True, False]).groupby("date").head(k)
         buy = tops[tops["y_gap"] < 0.295]
         res[f"p@{k}{name}"] = float(tops["y_up"].mean())
-        res[f"oc@{k}{name}"] = float(buy["y_oc"].mean())
-        res[f"win@{k}{name}"] = float((buy["y_oc"] > 0).mean())
+        res[f"oc@{k}{name}"] = float(buy["y_ocx"].mean())
+        res[f"win@{k}{name}"] = float((buy["y_ocx"] > 0).mean())
         res[f"unb@{k}{name}"] = float((tops["y_gap"] >= 0.295).mean())
-        res[f"med@{k}{name}"] = float(buy["y_oc"].median())
-        daily = buy.groupby("date")["y_oc"].mean() - 0.003
+        res[f"med@{k}{name}"] = float(buy["y_ocx"].median())
+        daily = buy.groupby("date")["y_ocx"].mean() - 0.003
         res[f"dayavg@{k}{name}"] = float(daily.mean())
         res[f"worst@{k}{name}"] = float(daily.min())
         if "close" in d.columns:
@@ -284,7 +284,7 @@ def run(name: str, p: Panel, months: int, seed: int = 0) -> dict:
             pr = _pred(cfg, y_all, tr)
         if cfg.get("rules"):
             pr = apply_rules(p, ti, pr)
-        outs.append(pd.DataFrame({"date": p.date[ti], "y_up": p.y["y_up"][ti], "p": pr, "y_gap": p.y_gap[ti], "y_oc": p.y_oc[ti], "close": p.close[ti],
+        outs.append(pd.DataFrame({"date": p.date[ti], "y_up": p.y["y_up"][ti], "p": pr, "y_gap": p.y_gap[ti], "y_oc": p.y_oc[ti], "y_ocx": p.y_ocx[ti], "close": p.close[ti],
                                   "pref": p.X[ti, i_pref], "val": np.expm1(p.X[ti, i_val])}))
         gc.collect()
         print(f"[exp {name}] {m} done {time.time()-t0:.0f}s", flush=True)

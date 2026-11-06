@@ -161,17 +161,18 @@ def trade_log(day: str, hm: str, morning_rows: list[dict], trade_today) -> dict:
             log["items"][x["code"]] = {"name": x["name"], "rank": x["morning_rank"], "entry": None if unb else x["price"],
                                        "entry_at": hm, "skip": "시가 상한가" if unb else None}
             log["entry_at"] = log["entry_at"] or hm
-    if hm >= EXIT:
-        for x in top:
-            it = log["items"].get(x["code"])
-            if it and it.get("entry") and it.get("exit") is None:
-                it["exit"], it["exit_at"] = x["price"], hm
-                it["net"] = round(x["price"] / it["entry"] - 1 - TRADE_COST, 4)
-                log["exit_at"] = log["exit_at"] or hm
+    # 매도 규칙: 상한가 도달 즉시 매도, 아니면 15:15 매도
+    for x in top:
+        it = log["items"].get(x["code"])
+        if it and it.get("entry") and it.get("exit") is None and (hm >= EXIT or x["status"] == "상한가"):
+            it["exit"], it["exit_at"] = x["price"], hm
+            it["exit_why"] = "상한가" if x["status"] == "상한가" and hm < EXIT else "15:15"
+            it["net"] = round(x["price"] / it["entry"] - 1 - TRADE_COST, 4)
+            log["exit_at"] = log["exit_at"] or hm
     for x in top:
         it = log["items"].get(x["code"])
         if it and it.get("entry"):
-            it["now"] = round(x["price"] / it["entry"] - 1, 4)
+            it["now"] = round((it["exit"] if it.get("exit") else x["price"]) / it["entry"] - 1, 4)
     entered = [it for it in log["items"].values() if it.get("entry")]
     done = [it for it in entered if it.get("net") is not None]
     log["open_day"] = round(sum(it["now"] for it in entered) / len(entered), 4) if entered else None
