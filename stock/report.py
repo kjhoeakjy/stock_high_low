@@ -321,6 +321,7 @@ def grade_history(actual: pd.DataFrame) -> list[dict]:
         graded.append({"target_date": tgt, "graded": h.get("graded", False),
                        "up_hits": sum(1 for it in h.get("up", [])[:5] if it.get("hit")),
                        "up_touch": sum(1 for it in h.get("up", [])[:5] if it.get("touch")),
+                       "up_10": sum(1 for it in h.get("up", [])[:5] if it.get("actual_ret") is not None and it["actual_ret"] >= 0.10),
                        "up_mean_ret": float(np.mean([it["actual_ret"] for it in h.get("up", [])[:5] if "actual_ret" in it])) if any("actual_ret" in it for it in h.get("up", [])[:5]) else None,
                        "up_mean_oc": float(np.mean([it["actual_oc"] for it in h.get("up", [])[:5] if it.get("actual_oc") is not None])) if any(it.get("actual_oc") is not None for it in h.get("up", [])[:5]) else None,
                        "actual_up_count": h.get("actual_up_count"),
@@ -355,12 +356,15 @@ def _append_perf(doc: dict, st: dict) -> list[dict]:
     graded = [h for h in doc.get("history", []) if h.get("graded")]
     live_n = sum(len(h.get("up", [])) for h in graded)
     live_hits = sum(h.get("up_hits", 0) for h in graded)
+    live_10 = sum(h.get("up_10", 0) for h in graded)
     rec = {"as_of": doc["as_of"], "train_rows": doc.get("train_rows"), "n_features": doc.get("n_features"),
            "train_from": doc.get("train_from"), "pos": st.get("pos"), "days": st.get("days"),
            "p@5": st.get("p@5"), "p@10": st.get("p@10"), "ap": st.get("ap"), "auc": st.get("auc"),
            "base_rate": st.get("base_rate"), "oc@5": st.get("oc_mean_ex_unbuyable@5"), "unb@5": st.get("unbuyable@5"),
+           "up10@5": st.get("up10@5"), "oc10@5": st.get("oc10@5"),
            "live_days": len(graded), "live_n": live_n, "live_hits": live_hits,
-           "live_rate": (live_hits / live_n) if live_n else None}
+           "live_rate": (live_hits / live_n) if live_n else None, "live_10": live_10,
+           "live_rate10": (live_10 / live_n) if live_n else None}
     perf = [x for x in perf if x.get("as_of") != rec["as_of"]] + [rec]
     perf.sort(key=lambda x: x["as_of"])
     path.write_text(json.dumps(perf, ensure_ascii=False))

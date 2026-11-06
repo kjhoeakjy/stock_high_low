@@ -277,11 +277,11 @@ function perfSvg(pf){
 function stats(d){
   const su=d.stats.y_up, g=document.getElementById('stat');
   const kv=(b,s)=>`<div class="kv"><b>${b}</b><span>${s}</span></div>`;
-  g.innerHTML=kv(f(su['p@5'],0),'상위5 적중률')+kv(su['hits@5'].toFixed(2),'일평균 적중 수')+kv(f(su.base_rate,2),'기준율')+kv((su['p@5']/su.base_rate).toFixed(0)+'배','기준율 대비')
+  g.innerHTML=kv(f(su['p@5'],0),'상위5 적중률')+(su['up10@5']!=null?kv(f(su['up10@5'],0),'상위5 +10% 이상 상승'):'')+(su['oc10@5']!=null?kv(f(su['oc10@5'],0),'시가 매수 +10% 이상'):'')+kv(su['hits@5'].toFixed(2),'일평균 적중 수')+kv(f(su.base_rate,2),'기준율')+kv((su['p@5']/su.base_rate).toFixed(0)+'배','기준율 대비')
     +(su['open_to_close@5']!=null?kv(`<span class="${cls(su['oc_mean_ex_unbuyable@5'])}">${sgn(su['oc_mean_ex_unbuyable@5'])}</span>`,'시가 매수 평균 수익')+kv(sgn(su['open_gap@5']),'평균 시가 갭')+kv(f(su['unbuyable@5'],0),'시가 상한가 비율')+kv(f(su['oc_win@5'],0),'시가 매수 상승 마감 비율'):'')
 ;
   const bt=(s)=>`<table><tr><th>모델 확률</th><th>건수</th><th>적중률</th></tr>${s.buckets.map(b=>`<tr><td>${pf(b.lo)} ~ ${pf(Math.min(b.hi,1))}</td><td>${b.n.toLocaleString()}</td><td>${pf(b.rate)}</td></tr>`).join('')}</table>
-    <table><tr><th>월</th><th>거래일</th><th>상한가 발생</th><th>상위5 적중률</th><th>시가 갭</th><th>시가 매수 수익</th></tr>${s.monthly.map(m=>`<tr><td>${m.ym.slice(0,4)}.${m.ym.slice(4)}</td><td>${m.days}</td><td>${m.pos}</td><td>${f(m['p@5'],0)}</td><td class="${cls(m['gap@5'])}">${m['gap@5']==null?'':sgn(m['gap@5'])}</td><td class="${cls(m['oc@5'])}">${m['oc@5']==null?'':sgn(m['oc@5'])}</td></tr>`).join('')}</table>`;
+    <table><tr><th>월</th><th>거래일</th><th>상한가 발생</th><th>상위5 적중률</th><th>+10% 이상</th><th>시가 갭</th><th>시가 매수 수익</th></tr>${s.monthly.map(m=>`<tr><td>${m.ym.slice(0,4)}.${m.ym.slice(4)}</td><td>${m.days}</td><td>${m.pos}</td><td>${f(m['p@5'],0)}</td><td>${m['up10@5']!=null?f(m['up10@5'],0):'-'}</td><td class="${cls(m['gap@5'])}">${m['gap@5']==null?'':sgn(m['gap@5'])}</td><td class="${cls(m['oc@5'])}">${m['oc@5']==null?'':sgn(m['oc@5'])}</td></tr>`).join('')}</table>`;
   document.getElementById('h-up').innerHTML=bt(su);
   const imp=(t)=>Object.entries(d.importance[t]).slice(0,25).map(([k,v])=>`<tr><td>${k}</td><td>${Math.round(v).toLocaleString()}</td></tr>`).join('');
   document.getElementById('h-imp').innerHTML=`<table><tr><th>변수</th><th>기여</th></tr>${imp('y_up')}</table>`;
@@ -290,7 +290,7 @@ function stats(d){
   document.getElementById('h-perf').innerHTML=perfSvg(d.perf||[]);
   const hall=(d.history||[]).filter(x=>x.graded);
   const h=hall.slice(-20).reverse();
-  document.getElementById('h-rec').innerHTML=liveSvg(hall)+(h.length?`<table><tr><th>날짜</th><th>상한가 발생</th><th>상위5 적중</th><th>장중 도달</th><th>평균 등락</th><th>시가 매수 수익</th><th>후보 결과</th></tr>${h.map(x=>`<tr><td>${x.target_date.slice(4,6)}.${x.target_date.slice(6)}</td><td>${x.actual_up_count}</td><td class="${x.up_hits?'hit':''}">${x.up_hits}</td><td>${x.up_touch}</td><td class="${cls(x.up_mean_ret)}">${x.up_mean_ret==null?'':sgn(x.up_mean_ret)}</td><td class="${cls(x.up_mean_oc)}">${x.up_mean_oc==null?'':sgn(x.up_mean_oc)}</td><td style="white-space:normal;text-align:left">${x.up.map(u=>`<span class="${u.hit?'hit':''}">${u.name} ${u.ret==null?'':sgn(u.ret)}</span>`).join(' · ')}</td></tr>`).join('')}</table>`:'<div class="ev">채점 기록 없음 · 익영업일 표시</div>');
+  document.getElementById('h-rec').innerHTML=liveSvg(hall)+(h.length?`<table><tr><th>날짜</th><th>상한가 발생</th><th>상위5 적중</th><th>+10% 이상</th><th>장중 도달</th><th>평균 등락</th><th>시가 매수 수익</th><th>후보 결과</th></tr>${h.map(x=>`<tr><td>${x.target_date.slice(4,6)}.${x.target_date.slice(6)}</td><td>${x.actual_up_count}</td><td class="${x.up_hits?'hit':''}">${x.up_hits}</td><td>${x.up_10!=null?x.up_10:'-'}</td><td>${x.up_touch}</td><td class="${cls(x.up_mean_ret)}">${x.up_mean_ret==null?'':sgn(x.up_mean_ret)}</td><td class="${cls(x.up_mean_oc)}">${x.up_mean_oc==null?'':sgn(x.up_mean_oc)}</td><td style="white-space:normal;text-align:left">${x.up.map(u=>`<span class="${u.hit?'hit':''}">${u.name} ${u.ret==null?'':sgn(u.ret)}</span>`).join(' · ')}</td></tr>`).join('')}</table>`:'<div class="ev">채점 기록 없음 · 익영업일 표시</div>');
   document.querySelectorAll('.stats .tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.stats .tabs button').forEach(x=>x.classList.remove('on'));b.classList.add('on');document.querySelectorAll('.hist').forEach(x=>x.classList.remove('on'));document.getElementById(b.dataset.t).classList.add('on');});
 }
 main().catch(e=>{document.getElementById('sub').textContent='데이터 없음';});

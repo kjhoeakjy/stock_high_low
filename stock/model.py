@@ -139,6 +139,10 @@ def summarize(oos: pd.DataFrame, target: str) -> dict:
         res[f"oc_med@{k}"] = float(oc.median())
         res[f"unbuyable@{k}"] = float(((sign * gap) >= 0.295).mean())
         res[f"oc_mean_ex_unbuyable@{k}"] = float(oc[(sign * gap) < 0.295].mean()) if ((sign * gap) < 0.295).any() else None
+        # 상한가 외 상승 지표: 익일 종가 +10% 이상 비율, 시가 매수 후 종가 +10% 이상 비율(시가 상한가 제외)
+        cc = (1 + gap) * (1 + oc) - 1
+        res[f"up10@{k}"] = float((cc >= 0.10).mean())
+        res[f"oc10@{k}"] = float((oc[gap < 0.295] >= 0.10).mean()) if (gap < 0.295).any() else None
     bins = [0, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5, 1.01]
     cut = pd.cut(p, bins, right=False)
     gap_all, oc_all = oos["y_gap"].astype(float).to_numpy(), oos["y_oc"].astype(float).to_numpy()
@@ -160,7 +164,8 @@ def summarize(oos: pd.DataFrame, target: str) -> dict:
                                "days": int(g["date"].nunique()), "oc@10": float(t10["y_oc"].astype(float).mean()),
                                "gap@10": float(t10["y_gap"].astype(float).mean()),
                                "oc@5": float(t5.loc[t5["y_gap"] < 0.295, "y_oc"].astype(float).mean()),
-                               "gap@5": float(t5["y_gap"].astype(float).mean())})
+                               "gap@5": float(t5["y_gap"].astype(float).mean()),
+                               "up10@5": float((((1 + t5["y_gap"].astype(float)) * (1 + t5["y_oc"].astype(float)) - 1) >= 0.10).mean())})
     return res
 
 
