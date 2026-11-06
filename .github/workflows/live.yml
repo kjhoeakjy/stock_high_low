@@ -40,6 +40,7 @@ jobs:
       - name: 장중 반복 수집(30초 간격)
         env:
           FORCE: ${{ inputs.force && '--force' || '' }}
+          PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
         run: |
           push() {
             cd live
@@ -49,6 +50,8 @@ jobs:
             cd ..
           }
           start=$(date +%s)
+          # 비밀번호가 설정되면 live 브랜치의 평문도 암호화, 해제되면 암호문 제거
+          if [ -n "$PAGE_PASSWORD" ]; then python -m stock.crypt live/live.json live/snap/*.csv; rm -f live/live.json live/snap/*.csv; else rm -f live/live.json.enc live/snap/*.csv.enc; fi
           while :; do
             t0=$(date +%s)
             python -m stock.live live $FORCE; rc=$?

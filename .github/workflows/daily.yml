@@ -28,6 +28,7 @@ jobs:
     timeout-minutes: 170
     env:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
       PYTHONUNBUFFERED: "1"
     steps:
       - uses: actions/checkout@v4
@@ -62,10 +63,13 @@ jobs:
           git config user.name github-actions
           git config user.email actions@github.com
           # 생성 결과만 최신 main 위에 얹어 커밋(화면 코드가 그사이 바뀌어도 충돌 없음)
+          # 비밀번호가 설정되어 있으면 남은 평문을 모두 암호화(최초 1회 변환 포함)
+          python -m stock.crypt docs/latest.json docs/scores.json docs/perf.json docs/history/*.json
           rm -rf /tmp/out && mkdir -p /tmp/out
-          for f in latest.json scores.json perf.json history; do [ -e "docs/$f" ] && cp -r "docs/$f" /tmp/out/; done
+          for f in latest.json latest.json.enc scores.json scores.json.enc perf.json perf.json.enc history; do [ -e "docs/$f" ] && cp -r "docs/$f" /tmp/out/; done
           git fetch -q origin ${{ github.ref_name }}
           git reset -q --hard origin/${{ github.ref_name }}
+          if [ -n "$PAGE_PASSWORD" ]; then rm -f docs/latest.json docs/scores.json docs/perf.json docs/history/*.json; else rm -f docs/*.json.enc docs/history/*.json.enc; fi
           cp -r /tmp/out/. docs/
           git add docs
           git diff --cached --quiet || git commit -qm "상한가 예측 $(TZ=Asia/Seoul date +%Y-%m-%d)"

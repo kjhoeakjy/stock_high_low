@@ -7,12 +7,14 @@ from __future__ import annotations
 
 import csv
 import datetime as dt
+import io
 import json
 import math
 import re
 import sys
 from pathlib import Path
 
+from stock import crypt
 from stock.common import OUT, http_json, num, pmap
 
 NAVER = "https://m.stock.naver.com/api"
@@ -145,7 +147,7 @@ def main():
     day = t.strftime("%Y%m%d")
     hm = t.strftime("%H%M")
     force = "--force" in sys.argv
-    latest = json.loads((OUT / "latest.json").read_text()) if (OUT / "latest.json").exists() else {}
+    latest = crypt.read_json(OUT / "latest.json", {}) or {}
     if not force:
         if t.weekday() >= 5 or hm < "0850" or hm > "1545":
             print(f"[live] 장외 시간({hm}) → 건너뜀")
@@ -154,9 +156,8 @@ def main():
             print(f"[live] 오늘({day})은 예측 대상일({latest.get('target_date')})이 아님(휴일?) → 건너뜀")
             sys.exit(3)
     scores = {}
-    if (OUT / "scores.json").exists():
-        for row in json.loads((OUT / "scores.json").read_text()).get("rows", []):
-            scores[row[0]] = {"name": row[1], "p": row[4]}
+    for row in (crypt.read_json(OUT / "scores.json", {}) or {}).get("rows", []):
+        scores[row[0]] = {"name": row[1], "p": row[4]}
     morning = latest.get("up", [])[:25]
     mcodes = [m["code"] for m in morning]
 
@@ -213,18 +214,19 @@ def main():
         "closed": hm >= "1530",
     }
     LIVE.mkdir(parents=True, exist_ok=True)
-    (LIVE / "live.json").write_text(json.dumps(doc, ensure_ascii=False))
+    crypt.write_json(LIVE / "live.json", doc)
     # 스냅샷 누적(장중 모델 학습용): 시각, 종목, 등락, 고가 등락, 거래대금, 아침 확률, 상태
     snap_dir = LIVE / "snap"
     snap_dir.mkdir(exist_ok=True)
     f = snap_dir / f"{day}.csv"
-    new = not f.exists()
-    with f.open("a", newline="") as fh:
-        w = csv.writer(fh)
-        if new:
-            w.writerow(["time", "code", "ret", "hi_ret", "val", "p", "status", "morning_rank"])
-        for x in market_rows + [m for m in morning_rows if m["code"] not in {y["code"] for y in market_rows}]:
-            w.writerow([hm, x["code"], x["ret"], x["hi_ret"], x["val"], x["p"], x["status"], x["morning_rank"]])
+    prev_txt = crypt.read_text(f)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    if prev_txt is None:
+        w.writerow(["time", "code", "ret", "hi_ret", "val", "p", "status", "morning_rank"])
+    for x in market_rows + [m for m in morning_rows if m["code"] not in {y["code"] for y in market_rows}]:
+        w.writerow([hm, x["code"], x["ret"], x["hi_ret"], x["val"], x["p"], x["status"], x["morning_rank"]])
+    crypt.write_text(f, (prev_txt or "") + buf.getvalue())
     print(f"[live] {doc['at']} 상한가 {len(at_limit)} 근접 {len(near)} 아침후보 {len(morning_rows)}/{len(morning)} ups={len(ups)}")
 
 

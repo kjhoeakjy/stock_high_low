@@ -8,6 +8,7 @@ import re
 import numpy as np
 import pandas as pd
 
+from stock import crypt
 from stock.common import DATA, OUT, http_json, pmap
 
 TOP = 25
@@ -299,10 +300,12 @@ def grade_history(actual: pd.DataFrame) -> list[dict]:
     hist_dir = OUT / "history"
     hist_dir.mkdir(exist_ok=True)
     graded = []
-    for f in sorted(hist_dir.glob("*.json"))[-60:]:
+    for f in crypt.list_json(hist_dir)[-60:]:
         try:
-            h = json.loads(f.read_text())
+            h = crypt.read_json(f)
         except Exception:  # noqa: BLE001
+            continue
+        if not h:
             continue
         tgt = h.get("target_date")
         a = actual[actual["date"] == tgt].set_index("code") if tgt else None
@@ -318,7 +321,7 @@ def grade_history(actual: pd.DataFrame) -> list[dict]:
         if a is not None and len(a):
             h["graded"] = True
             h["actual_up_count"] = int((a["ret1"] >= 0.295).sum())
-            f.write_text(json.dumps(h, ensure_ascii=False))
+            crypt.write_json(f, h)
         graded.append({"target_date": tgt, "graded": h.get("graded", False),
                        "up_hits": sum(1 for it in h.get("up", [])[:5] if it.get("hit")),
                        "up_touch": sum(1 for it in h.get("up", [])[:5] if it.get("touch")),
@@ -352,7 +355,7 @@ def _append_perf(doc: dict, st: dict) -> list[dict]:
     """학습 때마다 모델 성능 기록을 perf.json에 누적(같은 기준일은 덮어씀) → 성능 추이 그래프."""
     path = OUT / "perf.json"
     try:
-        perf = json.loads(path.read_text())
+        perf = crypt.read_json(path, []) or []
     except Exception:  # noqa: BLE001
         perf = []
     graded = [h for h in doc.get("history", []) if h.get("graded")]
@@ -369,7 +372,7 @@ def _append_perf(doc: dict, st: dict) -> list[dict]:
            "live_rate10": (live_10 / live_n) if live_n else None}
     perf = [x for x in perf if x.get("as_of") != rec["as_of"]] + [rec]
     perf.sort(key=lambda x: x["as_of"])
-    path.write_text(json.dumps(perf, ensure_ascii=False))
+    crypt.write_json(path, perf)
     return perf
 
 
@@ -399,17 +402,17 @@ def write(last: pd.DataFrame, actual: pd.DataFrame, res: dict, universe: list[di
     }
     (OUT / "history").mkdir(exist_ok=True)
     hist_doc = {**doc, "up": [{k: v for k, v in it.items() if k not in ("chart", "analysis", "groups", "evidence", "llm")} for it in doc["up"]]}
-    (OUT / "history" / f"{target_date}.json").write_text(json.dumps(hist_doc, ensure_ascii=False))
+    crypt.write_json(OUT / "history" / f"{target_date}.json", hist_doc)
     doc["history"] = grade_history(actual)
     doc["perf"] = _append_perf(doc, stats["y_up"])
-    (OUT / "latest.json").write_text(json.dumps(doc, ensure_ascii=False))
+    crypt.write_json(OUT / "latest.json", doc)
     # 전 종목 점수(검색용, 가벼운 버전)
     slim = scored[["code", "close", "ret1", "p_up", "p_oc", "raw_oc"]].copy()
     names = {u["code"]: u["name"] for u in universe}
     slim["name"] = slim["code"].map(names)
     slim = slim.sort_values("raw_oc", ascending=False, kind="stable")
-    (OUT / "scores.json").write_text(json.dumps(
+    crypt.write_json(OUT / "scores.json",
         {"as_of": today["as_of"], "rows": [[r.code, r.name, float(r.close), round(float(r.ret1), 4), round(float(r.p_up), 4), round(float(r.p_oc), 4)]
-                                          for r in slim.itertuples()]}, ensure_ascii=False))
+                                          for r in slim.itertuples()]})
     print(f"[report] {target_date}: up top {[(i['name'], i['p']) for i in doc['up'][:5]]}")
     return doc

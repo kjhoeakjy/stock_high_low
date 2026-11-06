@@ -74,9 +74,18 @@ td:first-child,th:first-child{text-align:left}
 .tabs button{background:var(--chip);color:var(--fg);border:0;border-radius:10px;padding:8px 14px;font-size:16px;cursor:pointer}
 .tabs button.on{background:#3b4252}
 .hist{display:none}.hist.on{display:block}
+#lock{position:fixed;inset:0;background:var(--bg);display:none;align-items:center;justify-content:center;z-index:50}
+#lock.on{display:flex}
+#lock form{width:min(360px,90vw);display:flex;flex-direction:column;gap:12px}
+#lock h1{margin:0 0 6px}
+#lock input[type=password]{font-size:22px;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--fg);width:100%;box-sizing:border-box}
+#lock button{font-size:20px;padding:12px;border-radius:12px;border:0;background:#3b4252;color:var(--fg);cursor:pointer}
+#lock label{color:var(--mut);font-size:16px}
+#lock .err{color:var(--up);font-size:16px;min-height:22px}
 </style>
 </head>
 <body>
+<div id="lock"><form id="lockform" autocomplete="off"><h1>GOOD LUCK</h1><input id="pw" type="password" placeholder="비밀번호" autofocus><label><input id="pwkeep" type="checkbox"> 이 기기에서 유지</label><button type="submit">열기</button><div class="err" id="pwerr"></div></form></div>
 <div class="wrap">
   <h1 id="title">GOOD LUCK</h1>
   <div class="sub" id="sub">데이터 조회 중</div>
@@ -128,7 +137,7 @@ function setView(v,btn){VIEW=v;btn.parentNode.querySelectorAll('button').forEach
   try{localStorage.setItem('view',v)}catch(e){}
   if(v==='live'){loadLive();if(!LIVE_T)LIVE_T=setInterval(()=>{if(VIEW==='live')loadLive();},20000);}}
 async function loadLive(){
-  let d;try{const r=await fetch(LIVE_URL+'?t='+Date.now(),{cache:'no-store'});if(!r.ok)throw new Error(r.status);d=await r.json();}
+  let d;try{d=await getJSON(LIVE_URL);}
   catch(e){document.getElementById('livesub').textContent='장중 데이터 없음 · 거래일 09:00 이후 갱신';return;}
   LIVE=d; renderRec();
   const fmtd=s=>`${s.slice(0,4)}.${s.slice(4,6)}.${s.slice(6,8)}`;
@@ -151,8 +160,29 @@ async function loadLive(){
 }
 function setMode(m,btn){MODE=m;btn.parentNode.querySelectorAll('button').forEach(x=>x.classList.remove('on'));btn.classList.add('on');if(DATA){render('up',DATA.up,'var(--up)');}}
 const pf=(v)=>v<0.01?(v*100).toFixed(2)+'%':v<0.1?(v*100).toFixed(1)+'%':(v*100).toFixed(0)+'%';
+// ---- 접근 제한: 데이터 파일은 AES-256-GCM(.enc)으로 발행. 비밀번호로 키를 유도해 브라우저에서 복호화.
+let KEY=null;
+const b64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+async function deriveKey(pw,saltStr,iter){const enc=new TextEncoder();const base=await crypto.subtle.importKey('raw',enc.encode(pw),'PBKDF2',false,['deriveKey']);
+  return crypto.subtle.deriveKey({name:'PBKDF2',salt:enc.encode(saltStr),iterations:iter,hash:'SHA-256'},base,{name:'AES-GCM',length:256},false,['decrypt']);}
+async function decryptDoc(e){if(!KEY)throw new Error('locked');const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:b64(e.iv)},KEY,b64(e.ct));return JSON.parse(new TextDecoder().decode(pt));}
+async function getJSON(u){
+  const r=await fetch(u+'.enc?'+Date.now(),{cache:'no-store'});
+  if(r.ok){const e=await r.json();if(e&&e.ct){if(!KEY)await unlock(e);return decryptDoc(e);}}
+  const r2=await fetch(u+'?'+Date.now(),{cache:'no-store'});if(!r2.ok)throw new Error(r2.status);return r2.json();
+}
+function savedPw(){try{return sessionStorage.getItem('pw')||localStorage.getItem('pw')||'';}catch(e){return '';}}
+async function tryKey(pw,e){const k=await deriveKey(pw,e.salt,e.iter);try{await crypto.subtle.decrypt({name:'AES-GCM',iv:b64(e.iv)},k,b64(e.ct));KEY=k;return true;}catch(err){return false;}}
+async function unlock(e){
+  const saved=savedPw();if(saved&&await tryKey(saved,e))return;
+  const box=document.getElementById('lock'),form=document.getElementById('lockform'),inp=document.getElementById('pw'),err=document.getElementById('pwerr');
+  box.classList.add('on');inp.focus();
+  await new Promise(res=>{form.onsubmit=async ev=>{ev.preventDefault();const pw=inp.value;err.textContent='';
+    if(await tryKey(pw,e)){try{(document.getElementById('pwkeep').checked?localStorage:sessionStorage).setItem('pw',pw);}catch(x){}box.classList.remove('on');res();}
+    else{err.textContent='비밀번호 불일치';inp.value='';inp.focus();}};});
+}
 async function main(){
-  const r=await fetch('latest.json?'+Date.now());const d=await r.json();DATA=d;
+  const d=await getJSON('latest.json');DATA=d;
   const td=d.target_date, as=d.as_of;
   const fmt=s=>`${s.slice(0,4)}.${s.slice(4,6)}.${s.slice(6,8)}`;
   document.getElementById('title').textContent=`GOOD LUCK · ${fmt(td)}`;
