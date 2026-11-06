@@ -22,7 +22,7 @@ def main(argv):
         panel.to_parquet(DATA / "panel.parquet", index=False)
     last_date = panel["date"].max()
     last = panel[panel["date"] == last_date].copy()
-    actual = panel[["code", "date", "ret1", "hi_ret", "lo_ret"]].copy()
+    actual = panel[["code", "date", "ret1", "hi_ret", "lo_ret", "gap"]].copy()
     n_train, train_from = int((panel["y_up"] >= 0).sum()), str(panel["date"].min())
     res = model.run(panel, months=months, rounds=rounds)
     del panel

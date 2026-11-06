@@ -219,6 +219,8 @@ def grade_history(actual: pd.DataFrame) -> list[dict]:
                 if a is not None and it["code"] in a.index:
                     r = a.loc[it["code"]]
                     it["actual_ret"] = float(r["ret1"])
+                    it["actual_gap"] = float(r["gap"]) if pd.notna(r["gap"]) else None
+                    it["actual_oc"] = float((1 + r["ret1"]) / (1 + r["gap"]) - 1) if pd.notna(r["gap"]) else None
                     it["hit"] = bool(r["ret1"] >= 0.295) if key == "up" else bool(r["ret1"] <= -0.295)
                     it["touch"] = bool(r["hi_ret"] >= 0.295) if key == "up" else bool(r["lo_ret"] <= -0.295)
         if a is not None and len(a):
@@ -231,15 +233,26 @@ def grade_history(actual: pd.DataFrame) -> list[dict]:
                        "up_touch": sum(1 for it in h.get("up", [])[:10] if it.get("touch")),
                        "dn_hits": sum(1 for it in h.get("dn", [])[:10] if it.get("hit")),
                        "up_mean_ret": float(np.mean([it["actual_ret"] for it in h.get("up", [])[:10] if "actual_ret" in it])) if any("actual_ret" in it for it in h.get("up", [])[:10]) else None,
+                       "up_mean_oc": float(np.mean([it["actual_oc"] for it in h.get("up", [])[:10] if it.get("actual_oc") is not None])) if any(it.get("actual_oc") is not None for it in h.get("up", [])[:10]) else None,
                        "actual_up_count": h.get("actual_up_count"), "actual_dn_count": h.get("actual_dn_count"),
-                       "up": [{"name": it["name"], "p": it["p"], "ret": it.get("actual_ret"), "hit": it.get("hit")} for it in h.get("up", [])[:10]],
+                       "up": [{"name": it["name"], "p": it["p"], "ret": it.get("actual_ret"), "oc": it.get("actual_oc"), "hit": it.get("hit")} for it in h.get("up", [])[:10]],
                        "dn": [{"name": it["name"], "p": it["p"], "ret": it.get("actual_ret"), "hit": it.get("hit")} for it in h.get("dn", [])[:10]]})
     return graded
 
 
+HOLIDAYS = {
+    # 2026
+    "20260101", "20260216", "20260217", "20260218", "20260301", "20260302", "20260501", "20260505", "20260524", "20260525",
+    "20260603", "20260606", "20260815", "20260817", "20260924", "20260925", "20260926", "20261003", "20261005", "20261009", "20261225", "20261231",
+    # 2027
+    "20270101", "20270206", "20270208", "20270209", "20270301", "20270505", "20270513", "20270603", "20270606", "20270607",
+    "20270815", "20270816", "20270914", "20270915", "20270916", "20270917", "20271003", "20271004", "20271009", "20271011", "20271225", "20271227", "20271231",
+}
+
+
 def next_trading_day(as_of: str) -> str:
     d = dt.datetime.strptime(as_of, "%Y%m%d") + dt.timedelta(days=1)
-    while d.weekday() >= 5:
+    while d.weekday() >= 5 or d.strftime("%Y%m%d") in HOLIDAYS:
         d += dt.timedelta(days=1)
     return d.strftime("%Y%m%d")
 

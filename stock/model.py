@@ -40,6 +40,8 @@ class Panel:
         self.code = df["code"].to_numpy()
         self.close = df["close"].to_numpy("float32")
         self.y = {t: df[t].to_numpy("int8") for t in ("y_up", "y_dn")}
+        self.y_gap = df["y_gap"].to_numpy("float32")
+        self.y_oc = df["y_oc"].to_numpy("float32")
         self.next_date = df["next_date"].to_numpy()
         self.ym = np.array([d[:6] for d in self.date])
         self.age_days = ((pd.to_datetime(self.date.max(), format="%Y%m%d")
@@ -98,7 +100,8 @@ def walk_forward(p: Panel, target: str, months: int = 12, rounds: int = ROUNDS) 
         ti = np.flatnonzero(te)
         pr = mdl.predict(p.X[ti]).astype("float32")
         o = pd.DataFrame({"code": p.code[ti], "date": p.date[ti], "next_date": p.next_date[ti],
-                          target: y[ti], "close": p.close[ti], "p": pr})
+                          target: y[ti], "close": p.close[ti], "p": pr,
+                          "y_gap": p.y_gap[ti], "y_oc": p.y_oc[ti]})
         outs.append(o)
         print(f"[wf {target}] {m} train={int(tr.sum())} pos={int(y[tr].sum())} test={len(ti)} "
               f"pos={int(y[ti].sum())} ap={average_precision_score(y[ti], pr):.4f} {time.time()-t0:.0f}s", flush=True)
@@ -116,6 +119,17 @@ def summarize(oos: pd.DataFrame, target: str) -> dict:
         pr, cnt = precision_at_k(oos, "p", target, k)
         res[f"p@{k}"] = pr
         res[f"hits@{k}"] = cnt
+    # 시가 매수 기준 결과(상위 k): 시가 갭, 시가→종가, 시가가 이미 제한가인 비율
+    sign = 1.0 if target == "y_up" else -1.0
+    for k in (5, 10):
+        tops = oos.groupby("date", group_keys=False).apply(lambda g: g.nlargest(k, "p"))
+        gap, oc = tops["y_gap"].astype(float), tops["y_oc"].astype(float)
+        res[f"open_gap@{k}"] = float(gap.mean())
+        res[f"open_to_close@{k}"] = float(oc.mean())
+        res[f"oc_win@{k}"] = float(((sign * oc) > 0).mean())
+        res[f"oc_med@{k}"] = float(oc.median())
+        res[f"unbuyable@{k}"] = float(((sign * gap) >= 0.295).mean())
+        res[f"oc_mean_ex_unbuyable@{k}"] = float(oc[(sign * gap) < 0.295].mean()) if ((sign * gap) < 0.295).any() else None
     bins = ([0, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5, 1.01] if target == "y_up"
             else [0, 0.001, 0.003, 0.01, 0.03, 0.1, 0.3, 1.01])
     cut = pd.cut(p, bins, right=False)
@@ -123,8 +137,12 @@ def summarize(oos: pd.DataFrame, target: str) -> dict:
     res["buckets"] = [{"lo": float(i.left), "hi": float(i.right), "rate": float(r["mean"]), "n": int(r["size"])}
                       for i, r in tab.iterrows()]
     oos = oos.assign(ym=oos["date"].str[:6])
-    res["monthly"] = [{"ym": m, "p@10": precision_at_k(g, "p", target, 10)[0], "pos": int(g[target].sum()),
-                       "days": int(g["date"].nunique())} for m, g in oos.groupby("ym")]
+    res["monthly"] = []
+    for m, g in oos.groupby("ym"):
+        t10 = g.groupby("date", group_keys=False).apply(lambda x: x.nlargest(10, "p"))
+        res["monthly"].append({"ym": m, "p@10": precision_at_k(g, "p", target, 10)[0], "pos": int(g[target].sum()),
+                               "days": int(g["date"].nunique()), "oc@10": float(t10["y_oc"].astype(float).mean()),
+                               "gap@10": float(t10["y_gap"].astype(float).mean())})
     return res
 
 

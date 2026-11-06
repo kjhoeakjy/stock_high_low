@@ -242,6 +242,9 @@ def build(prices: pd.DataFrame, flows: pd.DataFrame | None, universe: list[dict]
     df["y_dn"] = np.where(valid, (nxt <= -LIM).astype("int8"), -1).astype("int8")
     df["y_touch_up"] = np.where(valid, (nxt_hi >= LIM).astype("int8"), -1).astype("int8")
     df["y_ret"] = nxt.astype("float32")
+    nxt_gap = _g(df, "gap").shift(-1)
+    df["y_gap"] = np.where(valid, nxt_gap, np.nan).astype("float32")          # 다음날 시가 갭
+    df["y_oc"] = np.where(valid, (1 + nxt) / (1 + nxt_gap) - 1, np.nan).astype("float32")  # 시가→종가
     df["next_date"] = _g(df, "date").shift(-1)
 
     df.drop(columns=["_v"], inplace=True, errors="ignore")
@@ -274,7 +277,7 @@ def _group_feats(df: pd.DataFrame, groups: dict, kind: str, pre: str) -> pd.Data
 
 
 EXCLUDE = {"code", "date", "open", "high", "low", "close", "volume", "mcap", "y_up", "y_dn",
-           "y_touch_up", "y_ret", "next_date", "name"}
+           "y_touch_up", "y_ret", "y_gap", "y_oc", "next_date", "name"}
 
 
 def feature_cols(df: pd.DataFrame) -> list[str]:
