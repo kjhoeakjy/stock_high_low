@@ -143,13 +143,13 @@ def fetch_index() -> dict:
 
 
 TRADE_COST = 0.0053  # 모델 검증과 동일한 왕복 비용 가정(세금 0.20% + 수수료 0.03% + 미끄러짐 0.30%)
-ENTRY = ("0901", "0920")  # 진입 기록 창: 이 구간의 첫 스냅샷 가격
+ENTRY = ("0900", "0920")  # 진입 기록 창: 이 구간의 첫 스냅샷 가격
 EXIT = "1515"
 STOP = 0.05  # 손절선(매수가 대비)  # 청산 기록: 이 시각 이후 첫 스냅샷 가격(15:20 종가 단일가 전)
 
 
 def trade_log(day: str, hm: str, morning_rows: list[dict], trade_today) -> dict:
-    """장전 상위 5종목의 09:01 진입가·15:15 청산가를 기록해 실제 체결 기준 손익을 누적한다."""
+    """장전 상위 5종목의 장 시작 직후 진입가·15:15 청산가를 기록해 실제 체결 기준 손익을 누적한다."""
     f = LIVE / "trades" / f"{day}.json"
     log = crypt.read_json(f, None) or {"date": day, "trade": trade_today, "entry_at": None, "exit_at": None, "items": {}}
     top = [x for x in morning_rows if x.get("morning_rank") and x["morning_rank"] <= 5]
