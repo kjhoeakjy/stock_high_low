@@ -1,0 +1,48 @@
+name: LLM 읽기 점수
+run-name: "LLM 읽기 점수 top=${{ inputs.top || '100' }} days=${{ inputs.days || '400' }}"
+on:
+  workflow_dispatch:
+    inputs:
+      top:
+        description: "일별 상위 N 후보"
+        default: "100"
+      days:
+        description: "소급 일수"
+        default: "400"
+      max_req:
+        description: "이번 실행 최대 요청 수"
+        default: "3000"
+permissions:
+  contents: write
+concurrency:
+  group: stock-llm
+  cancel-in-progress: false
+jobs:
+  score:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      PYTHONUNBUFFERED: "1"
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q pandas pyarrow numpy lightgbm scikit-learn anthropic
+      - name: 자료 받기
+        run: |
+          git fetch -q --depth=1 origin stock-data
+          mkdir -p stock/data
+          git --work-tree=stock/data checkout -q FETCH_HEAD -- oos_y_oc10.parquet news.parquet disclosures.parquet
+          git reset -q
+          if git fetch -q --depth=1 origin llm-data 2>/dev/null; then git --work-tree=stock/data checkout -q FETCH_HEAD -- . ; git reset -q; fi
+      - name: 채점
+        run: python -m stock.llm_score --top=${{ inputs.top || '100' }} --days=${{ inputs.days || '400' }} --max_req=${{ inputs.max_req || '3000' }}
+      - name: 저장(llm-data 브랜치)
+        run: |
+          rm -rf /tmp/ld && mkdir -p /tmp/ld && cp stock/data/llm_scores.parquet /tmp/ld/ 2>/dev/null || true
+          cd /tmp/ld && git init -q -b llm-data && git config user.name github-actions && git config user.email actions@github.com
+          git add -A && git commit -qm "llm $(date -u +%Y%m%dT%H%M)" && git push -q -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" llm-data || echo "변경 없음"
+      - name: 평가(메타 라벨링에 LLM 변수 추가 비교)
+        run: python -m stock.meta --top=20 --llm

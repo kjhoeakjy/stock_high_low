@@ -53,21 +53,39 @@ def build(oos: pd.DataFrame, top: int) -> pd.DataFrame:
     return t
 
 
+LLM_FEATS = ["llm_has", "llm_dir", "llm_abs", "llm_novelty", "llm_risk"]
 FEATS = ["p", "rank", "p_top1", "p_top5", "p_top20", "p_gap5", "p_rel", "ret1", "logval", "dow",
          "m_breadth", "m_ret1", "m_n_p30", "m_n_p50", "m_p_q99", "m_n", "m_breadth5", "m_ret5", "m_breadth20", "m_ret20"]
 
 
-def walk(t: pd.DataFrame, min_train: int) -> pd.DataFrame:
+def add_llm(t: pd.DataFrame) -> pd.DataFrame:
+    """LLM 읽기 점수(llm_scores.parquet)가 있으면 병합. 점수 없는 행은 has=0."""
+    f = DATA / "llm_scores.parquet"
+    if not f.exists():
+        return t
+    s = pd.read_parquet(f)
+    s["date"], s["code"] = s["date"].astype(str), s["code"].astype(str)
+    s = s.rename(columns={"has": "llm_has", "dir": "llm_dir", "novelty": "llm_novelty", "risk": "llm_risk"})
+    s["llm_abs"] = s["llm_dir"].abs()
+    t = t.merge(s[["date", "code"] + LLM_FEATS], on=["date", "code"], how="left")
+    t["llm_cov"] = t["llm_has"].notna()
+    for c in LLM_FEATS:
+        t[c] = t[c].fillna(0)
+    return t
+
+
+def walk(t: pd.DataFrame, min_train: int, feats: list[str] | None = None) -> pd.DataFrame:
+    feats = feats or FEATS
     months = sorted(t["ym"].unique())
     out = []
     for i, m in enumerate(months):
         if i < min_train:
             continue
         tr, te = t[t["ym"] < m], t[t["ym"] == m]
-        ds = lgb.Dataset(tr[FEATS].astype("float32").values, tr["label"].values, feature_name=FEATS, free_raw_data=True)
+        ds = lgb.Dataset(tr[feats].astype("float32").values, tr["label"].values, feature_name=feats, free_raw_data=True)
         mdl = lgb.train(PARAMS, ds, num_boost_round=ROUNDS)
         te = te.copy()
-        te["q"] = mdl.predict(te[FEATS].astype("float32").values)
+        te["q"] = mdl.predict(te[feats].astype("float32").values)
         out.append(te)
         print(f"[meta] {m} train={len(tr)} test={len(te)} pos={tr['label'].mean():.3f}", flush=True)
     return pd.concat(out, ignore_index=True)
@@ -104,6 +122,23 @@ def main(argv):
     oos = pd.read_parquet(DATA / "oos_y_oc10.parquet")
     print(f"[meta] oos rows={len(oos)} days={oos['date'].nunique()} {oos['date'].min()}~{oos['date'].max()}")
     t = build(oos, top)
+    if "--llm" in argv:
+        t = add_llm(t)
+        cov = t[t.get("llm_cov", pd.Series(False, index=t.index))]
+        if len(cov):
+            dates = sorted(cov["date"].unique())
+            print(f"[meta] LLM 점수 구간 {dates[0]}~{dates[-1]} {len(dates)}일 · 판독 있음 {int(cov['llm_has'].sum())}/{len(cov)}")
+            print("[meta] LLM 방향별 상위 20 평균 순수익·적중:")
+            print(cov.groupby("llm_dir").agg(n=("net", "size"), net=("net", "mean"), win=("label", "mean")).round(4).to_string())
+            # 구간 내 비교: 기본 변수 vs 기본+LLM (학습은 구간 이전 달 포함 전체 캐시, 평가는 LLM 구간)
+            a = walk(t, min_train)
+            b = walk(t, min_train, FEATS + LLM_FEATS)
+            for name, r in (("meta_base", a), ("meta_llm", b)):
+                sub = r[r["date"].isin(set(dates))]
+                for pick, gate in (("pq", "q"), ("q", None), ("pq", None)):
+                    print(f"[meta] {name} {pick}/{gate}", json.dumps(policy(sub, pick, gate), ensure_ascii=False))
+            print("[meta] 기준(1단계 p, 점수 게이트)", json.dumps(policy(a[a["date"].isin(set(dates))], "p", "score"), ensure_ascii=False))
+            return
     t = walk(t, min_train)
     print(f"[meta] 평가 구간 {t['date'].min()}~{t['date'].max()} 일수 {t['date'].nunique()} 메타 AUC 대용(이익 확률 분위별 실제 승률):")
     t["qb"] = pd.qcut(t["q"], 5, labels=False, duplicates="drop")
