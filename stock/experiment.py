@@ -219,6 +219,7 @@ def evaluate(oos: pd.DataFrame, k: int = 5) -> dict:
         if "close" in d.columns:
             sim = sim_capital(d, k)
             res[f"sim@{k}{name}"] = float(sim["cum"])
+            res[f"simfix@{k}{name}"] = float(sim["fixed_cum"])
             res[f"simmdd@{k}{name}"] = float(sim["mdd"])
     t3 = oos.sort_values(["date", "p"], ascending=[True, False]).groupby("date").head(3)
     res["p@3"] = float(t3["y_up"].mean())

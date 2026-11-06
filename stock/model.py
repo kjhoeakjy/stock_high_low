@@ -162,20 +162,27 @@ def net_policy(oos: pd.DataFrame, k: int = 5, q: float = 0.3, warm: int = 20) ->
 START_CAPITAL = 1_000_000  # 사용자 시작 자금
 
 
-def allocate(scores: np.ndarray, prices: np.ndarray, capital: float, buyable: np.ndarray) -> np.ndarray:
-    """화면의 매수 계획과 같은 규칙: 점수 가중(10~40%로 제한) 비중 → 주수 내림 → 남은 현금을 목표 금액 부족분이 큰 순서로 1주씩 채움."""
+ADV_CAP = 0.01  # 종목당 매수 금액 한도: 전일 거래대금의 1%(문헌: 시장 충격 억제)
+
+
+def allocate(scores: np.ndarray, prices: np.ndarray, capital: float, buyable: np.ndarray, cap: np.ndarray | None = None) -> np.ndarray:
+    """화면의 매수 계획과 같은 규칙: 점수 가중(10~40%로 제한) 비중 → 종목당 한도(cap, 원) 적용 → 주수 내림 →
+    남은 현금을 목표 금액 부족분이 큰 순서로 1주씩 채움(한도 내)."""
     n = np.zeros(len(scores), dtype=np.int64)
     ok = buyable & (prices > 0)
     if not ok.any():
         return n
+    cap = np.full(len(scores), np.inf) if cap is None else np.where(np.isfinite(cap), cap, np.inf)
     w = np.where(ok, np.clip(scores, 0, None), 0.0)
     w = w / w.sum() if w.sum() > 0 else np.where(ok, 1.0, 0.0) / ok.sum()
     w = np.where(ok, np.clip(w, 0.1, 0.4), 0.0)
     w = w / w.sum()
-    n = np.where(ok, np.floor(w * capital / np.where(prices > 0, prices, np.inf)), 0).astype(np.int64)
+    target = np.minimum(w * capital, cap)
+    n = np.where(ok, np.floor(target / np.where(prices > 0, prices, np.inf)), 0).astype(np.int64)
     cash = capital - float((n * prices).sum())
     for _ in range(200):
-        short = np.where(ok & (prices <= cash), w * capital - n * prices, -np.inf)
+        room = ok & (prices <= cash) & ((n + 1) * prices <= cap)
+        short = np.where(room, target - n * prices, -np.inf)
         j = int(np.argmax(short))
         if not np.isfinite(short[j]):
             break
@@ -189,27 +196,35 @@ def sim_capital(oos: pd.DataFrame, k: int = 5, start: float = START_CAPITAL, tra
     시가 매수·종가 매도, 왕복 비용 COST 차감. trade_days가 있으면 그 날만 거래(미거래일 규칙)."""
     t = oos.sort_values(["date", "p"], ascending=[True, False]).groupby("date").head(k)
     cap = float(start)
-    peak, mdd, rows = cap, 0.0, []
+    fixed_pnl = 0.0  # 매일 시작 자금(start)만 투자했을 때의 누적 손익(복리 없음)
+    peak, mdd, rows, capped = cap, 0.0, [], 0
     for d, g in t.groupby("date", sort=True):
         if trade_days is not None and d not in trade_days:
-            rows.append({"d": str(d), "bal": round(cap), "ret": 0.0, "n": 0, "trade": False})
+            rows.append({"d": str(d), "bal": round(cap), "ret": 0.0, "n": 0, "trade": False, "fixed": round(start + fixed_pnl)})
             continue
         gap = g["y_gap"].to_numpy("float64")
         open_ = g["close"].to_numpy("float64") * (1 + np.nan_to_num(gap, nan=1.0))
         buyable = np.nan_to_num(gap, nan=1.0) < 0.295
-        n = allocate(g["p"].to_numpy("float64"), open_, cap, buyable)
+        lim = ADV_CAP * g["val"].to_numpy("float64") if "val" in g.columns else None  # 종목당 전일 거래대금 1%
+        r = np.nan_to_num(g["y_ocx"].to_numpy("float64"), nan=0.0)
+        n = allocate(g["p"].to_numpy("float64"), open_, cap, buyable, lim)
         spent = float((n * open_).sum())
-        pnl = float((n * open_ * np.nan_to_num(g["y_ocx"].to_numpy("float64"), nan=0.0)).sum()) - spent * COST
+        pnl = float((n * open_ * r).sum()) - spent * COST
         ret = pnl / cap if cap > 0 else 0.0
+        if buyable.any() and spent < 0.8 * cap:
+            capped += 1
+        nf = allocate(g["p"].to_numpy("float64"), open_, start, buyable, lim)
+        fixed_pnl += float((nf * open_ * r).sum()) - float((nf * open_).sum()) * COST
         cap += pnl
         peak = max(peak, cap)
         mdd = min(mdd, cap / peak - 1)
-        rows.append({"d": str(d), "bal": round(cap), "ret": round(ret, 4), "n": int((n > 0).sum()), "trade": True})
+        rows.append({"d": str(d), "bal": round(cap), "ret": round(ret, 4), "n": int((n > 0).sum()), "trade": True, "fixed": round(start + fixed_pnl)})
     rets = np.array([r["ret"] for r in rows if r["trade"]])
     return {"start": start, "final": round(cap), "cum": cap / start - 1, "mdd": float(mdd), "days": int(len(rows)),
             "trade_days": int(len(rets)), "win": float((rets > 0).mean()) if len(rets) else None,
             "day_avg": float(rets.mean()) if len(rets) else None, "worst": float(rets.min()) if len(rets) else None,
-            "best": float(rets.max()) if len(rets) else None, "daily": rows}
+            "best": float(rets.max()) if len(rets) else None, "capped_days": int(capped), "adv_cap": ADV_CAP,
+            "fixed_pnl": round(fixed_pnl), "fixed_cum": fixed_pnl / start, "daily": rows}
 
 
 def summarize(oos: pd.DataFrame, target: str) -> dict:

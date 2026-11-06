@@ -243,12 +243,12 @@ function applyCapital(){const v=Math.max(0,Math.floor(+document.getElementById('
 function addBalance(){const date=document.getElementById('bal-date').value,amt=Math.floor(+document.getElementById('bal-amt').value||0);if(!date||!amt)return;const b=balances().filter(x=>x.date!==date);b.push({date,amt});lsSet(LSK.bal,b);document.getElementById('bal-amt').value='';document.getElementById('capital').value=capitalToday();renderPlan();renderRecord();}
 function delBalance(date){lsSet(LSK.bal,balances().filter(x=>x.date!==date));document.getElementById('capital').value=capitalToday();renderPlan();renderRecord();}
 function allocate(items,A,priceOf){
-  const cand=items.filter(it=>!it.halted&&!it.managed).map(it=>{const pr=priceOf(it);return {it,price:pr.price,live:pr.live,locked:pr.locked,s:Math.max(0,(it.p_oc!=null?it.p_oc:it.p)*(1-(it.p_lock||0)))};}).filter(x=>x.price>0);
+  const cand=items.filter(it=>!it.halted&&!it.managed).map(it=>{const pr=priceOf(it);return {it,price:pr.price,live:pr.live,locked:pr.locked,cap:it.val?it.val*0.01:Infinity,s:Math.max(0,(it.p_oc!=null?it.p_oc:it.p)*(1-(it.p_lock||0)))};}).filter(x=>x.price>0);
   const ok=cand.filter(x=>!x.locked), tot=ok.reduce((a,x)=>a+x.s,0)||1;
   ok.forEach(x=>{x.w=Math.min(0.4,Math.max(0.1,x.s/tot));});
-  const wt=ok.reduce((a,x)=>a+x.w,0)||1; ok.forEach(x=>{x.w/=wt;x.n=Math.floor(x.w*A/x.price);});
+  const wt=ok.reduce((a,x)=>a+x.w,0)||1; ok.forEach(x=>{x.w/=wt;x.target=Math.min(x.w*A,x.cap);x.n=Math.floor(x.target/x.price);});
   let cash=A-ok.reduce((a,x)=>a+x.n*x.price,0);
-  for(let g=0;g<200;g++){const c=ok.filter(x=>x.price<=cash).sort((a,b)=>(b.w*A-b.n*b.price)-(a.w*A-a.n*a.price))[0];if(!c)break;c.n++;cash-=c.price;}
+  for(let g=0;g<200;g++){const c=ok.filter(x=>x.price<=cash&&(x.n+1)*x.price<=x.cap).sort((a,b)=>(b.target-b.n*b.price)-(a.target-a.n*a.price))[0];if(!c)break;c.n++;cash-=c.price;}
   cand.filter(x=>x.locked).forEach(x=>{x.w=0;x.n=0;});
   return {rows:cand,cash};
 }
@@ -370,10 +370,10 @@ function anGrid(a){
 function svgOpen(W,H){return `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">`;}
 function balSvg(rows){
   const W=760,H=240,pad={l:8,r:90,t:40,b:28}, n=rows.length; if(n<2) return '';
-  const v=rows.map(r=>r.bal), hi=Math.max(...v,1000000), lo=Math.min(...v,1000000);
-  const x=i=>pad.l+(W-pad.l-pad.r)*i/(n-1), y=b=>pad.t+(hi-b)/(hi-lo||1)*(H-pad.t-pad.b);
-  let s=`<svg class="chart" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg"><text x="${pad.l}" y="22" fill="#f2f3f5" font-size="16" font-weight="700">100만 원 시작 잔고 추이(검증 ${n}거래일, 복리)</text>`;
-  for(let i=0;i<=4;i++){const b=lo+(hi-lo)*i/4, yy=y(b); s+=`<line x1="${pad.l}" x2="${W-pad.r}" y1="${yy}" y2="${yy}" stroke="#262a33"/><text x="${W-pad.r+6}" y="${yy+5}" fill="#8b919c" font-size="13">${Math.round(b/10000).toLocaleString()}만</text>`;}
+  const v=rows.map(r=>r.bal), hi=Math.max(...v,1000000), lo=Math.min(...v,1000000), LOG=hi/lo>20, tr=b=>LOG?Math.log(b):b;
+  const x=i=>pad.l+(W-pad.l-pad.r)*i/(n-1), y=b=>pad.t+(tr(hi)-tr(b))/(tr(hi)-tr(lo)||1)*(H-pad.t-pad.b);
+  let s=`<svg class="chart" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg"><text x="${pad.l}" y="22" fill="#f2f3f5" font-size="16" font-weight="700">100만 원 시작 잔고 추이(검증 ${n}거래일, 복리${LOG?', 로그 눈금':''})</text>`;
+  for(let i=0;i<=4;i++){const b=LOG?Math.exp(Math.log(lo)+(Math.log(hi)-Math.log(lo))*i/4):lo+(hi-lo)*i/4, yy=y(b); s+=`<line x1="${pad.l}" x2="${W-pad.r}" y1="${yy}" y2="${yy}" stroke="#262a33"/><text x="${W-pad.r+6}" y="${yy+5}" fill="#8b919c" font-size="13">${Math.round(b/10000).toLocaleString()}만</text>`;}
   s+=`<line x1="${pad.l}" x2="${W-pad.r}" y1="${y(1000000)}" y2="${y(1000000)}" stroke="#8b919c" stroke-dasharray="4 4"/>`;
   s+=`<polyline points="${rows.map((r,i)=>`${x(i)},${y(r.bal)}`).join(' ')}" fill="none" stroke="${v[n-1]>=1000000?'#ff4d4d':'#4d8cff'}" stroke-width="2"/>`;
   const lab=i=>{const d=rows[i].d;return `${d.slice(2,4)}.${d.slice(4,6)}`;};
@@ -425,7 +425,7 @@ function stats(d){
   const pct=v=>`<span class="${cls(v)}">${sgn(v)}</span>`, net=su.net||null;
   const upRate=trade?su['up@5']:su['p@5'], tenRate=trade?su['p@5']:su['up10@5'];
   const sim=su.sim||null, simp=su.sim_policy||null, won0=v=>Math.round(v).toLocaleString()+'원';
-  const simTiles=sim?kv(`<span class="${cls(sim.cum)}">${won0(sim.final)}</span>`,'100만 원 시작 시 잔고(12개월)','매일 잔고 전액을 매수 가능한 상위 5종목에 주수 단위 배분, 시가 매수, −5% 손절·상한가 즉시 매도·그 외 종가 매도, 비용 차감, 복리')+kv(pct(sim.cum),'복리 누적 수익률','시가 상한가·배분 금액으로 1주도 못 사는 종목 제외')+kv(pct(sim.mdd),'최대 낙폭','잔고 고점 대비 최대 하락')+kv(f(sim.win,0),'수익일 비율','거래일 중 잔고가 늘어난 날')+(simp?kv(`<span class="${cls(simp.cum)}">${won0(simp.final)}</span>`,'미거래일 규칙 적용 시 잔고','점수 하위 30% 날은 현금 보유'):''):'';
+  const simTiles=sim?(sim.fixed_pnl!=null?kv(`<span class="${cls(sim.fixed_cum)}">${(sim.fixed_pnl>=0?'+':'')+won0(sim.fixed_pnl)}</span>`,'매일 100만 원 투자 시 누적 손익(12개월)','매일 100만 원을 매수 가능한 상위 5종목에 주수 단위 배분, 시가 매수, −5% 손절·상한가 즉시 매도·그 외 종가 매도, 비용 차감, 복리 없음'):'')+kv(`<span class="${cls(sim.cum)}">${won0(sim.final)}</span>`,'100만 원 복리 운용 시 잔고','수익을 다음 날 재투자. 종목당 전일 거래대금 1% 한도'+(sim.capped_days?` · 한도에 걸린 날 ${sim.capped_days}일`:''))+kv(pct(sim.mdd),'최대 낙폭','잔고 고점 대비 최대 하락')+kv(f(sim.win,0),'수익일 비율','거래일 중 잔고가 늘어난 날')+(simp?kv(`<span class="${cls(simp.cum)}">${won0(simp.final)}</span>`,'미거래일 규칙 적용 시 복리 잔고','점수 하위 30% 날은 현금 보유'):''):'';
   g.innerHTML=simTiles+(net&&net.trade_day!=null?kv(pct(net.trade_day),'거래일 평균 순수익','상위 5종목 시가 매수, −5% 손절·상한가 즉시 매도·그 외 종가 매도, 세금·수수료·미끄러짐 '+(net.cost*100).toFixed(2)+'% 차감')+kv(pct(net.trade_cum),'12개월 누적 순수익','거래일 순수익 합계(복리 미적용, 종목별 균등 배분)')+kv(f(1-net.trade_frac,0),'미거래일 비율','상위 5 평균 점수가 과거 하위 30% 미만인 날은 거래하지 않음')+kv(f(net.trade_loss_days,0),'손실일 비율','거래일 중 순수익이 음수인 날 비율')+kv(pct(net.trade_worst),'최악 거래일','거래일 중 최저 순수익'):'')
     +(su['oc_mean_ex_unbuyable@5']!=null?kv(pct(su['oc_mean_ex_unbuyable@5']),'시가 매수 평균 수익(비용 전)','익일 시가 매수·종가 매도 평균 수익률'):'')
     +(tenRate!=null?kv(f(tenRate,0),'상위5 +10% 이상','상위 5종목 중 익일 종가 +10% 이상 상승 비율'):'')+(su['up5@5']!=null?kv(f(su['up5@5'],0),'상위5 +5% 이상','상위 5종목 중 익일 종가 +5% 이상 상승 비율'):'')+(upRate!=null?kv(f(upRate,0),'상위5 상한가 비율','상위 5종목 중 익일 상한가 마감 비율'):'')
