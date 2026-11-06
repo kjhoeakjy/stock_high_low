@@ -84,6 +84,11 @@ CONFIGS = {
     "oc10_s3_hl24_rank": {"target": "oc10", "hard_neg": 3.0, "half_life": 24,
                           "ens": [{}, {"seed_off": 1}, {"seed_off": 2}, {"target": "oc_grade", "objective": "lambdarank", "pos_min": 2}]},
     "oc10_s3_hl36": {"target": "oc10", "hard_neg": 3.0, "n_seeds": 3, "half_life": 36},
+    # 5차(2026-11-07): 다른 학습기·DoubleEnsemble 구성원
+    "oc10_cat": {"target": "oc10", "hard_neg": 3.0, "half_life": 24, "lib": "cat"},                       # CatBoost 단독
+    "oc10_cat_ens": {"target": "oc10", "hard_neg": 3.0, "half_life": 24, "ens": [{}, {"seed_off": 1}, {"lib": "cat"}]},  # LGBM 2시드 + CatBoost 순위 평균
+    "oc10_de": {"target": "oc10", "hard_neg": 3.0, "half_life": 24, "de": 3},                             # DoubleEnsemble-lite(손실 재가중+변수 부분집합 3회)
+    "oc10_de_s3": {"target": "oc10", "hard_neg": 3.0, "half_life": 24, "de": 3, "n_seeds": 3},
 }
 
 
@@ -162,6 +167,16 @@ def fit(p: Panel, cfg: dict, tr: np.ndarray, y_all, seed=0):
         params.update(objective="lambdarank", metric="ndcg", eval_at=[5], lambdarank_truncation_level=cfg.get("trunc", 20),
                       label_gain=[0, 1, 3, 7])
         ds = lgb.Dataset(X, y, group=counts, feature_name=cols, free_raw_data=True)
+    elif cfg.get("lib") == "cat":
+        from catboost import CatBoostClassifier, Pool
+        pool = Pool(_finite(X), label=y, weight=w, feature_names=list(cols))
+        cb = CatBoostClassifier(iterations=cfg.get("rounds", 1500), learning_rate=0.05, depth=8, l2_leaf_reg=10.0, border_count=128,
+                                random_seed=params["seed"], thread_count=-1, verbose=0, allow_writing_files=False)
+        cb.fit(pool)
+        del pool
+        return _Cat(cb), cols
+    elif cfg.get("de"):
+        return _double_ensemble(X, y, w, cols, params, cfg, seed), cols
     elif cfg.get("lib") == "xgb":
         import xgboost as xgb
         dm = xgb.DMatrix(_finite(X), label=y, weight=w, feature_names=cols, nthread=0)
@@ -177,6 +192,45 @@ def fit(p: Panel, cfg: dict, tr: np.ndarray, y_all, seed=0):
         ds = lgb.Dataset(X, y, weight=w, feature_name=cols, free_raw_data=True)
     mdl = lgb.train(params, ds, num_boost_round=cfg.get("rounds", ROUNDS))
     return mdl, cols
+
+
+class _Cat:
+    def __init__(self, cb):
+        self.cb = cb
+
+    def predict(self, X):
+        return self.cb.predict_proba(_finite(X))[:, 1]
+
+
+class _DE:
+    """변수 부분집합별 모델 평균."""
+    def __init__(self, parts):
+        self.parts = parts  # [(model, col_idx)]
+
+    def predict(self, X):
+        return np.mean([m.predict(X[:, ci]) for m, ci in self.parts], axis=0)
+
+
+def _double_ensemble(X, y, w, cols, params, cfg, seed):
+    """DoubleEnsemble(Zhang 외 2020) 간소판: 회차마다 (1) 직전 회차 앙상블의 표본 손실 순위로 가중(상위 50% 손실 ×1.5),
+    (2) 변수 60% 무작위 부분집합으로 LightGBM 학습, 예측은 평균."""
+    rng = np.random.default_rng(100 + seed)
+    k, frac = int(cfg["de"]), cfg.get("de_frac", 0.6)
+    parts, pred = [], None
+    for r in range(k):
+        wr = w.copy()
+        if pred is not None:
+            loss = -(y * np.log(np.clip(pred, 1e-6, 1)) + (1 - y) * np.log(np.clip(1 - pred, 1e-6, 1)))
+            hard = loss >= np.quantile(loss, 0.5)
+            wr = np.where(hard, wr * 1.5, wr).astype("float32")
+        ci = np.sort(rng.choice(len(cols), int(len(cols) * frac), replace=False))
+        prm = dict(params, seed=params["seed"] + r, feature_fraction=min(1.0, params.get("feature_fraction", 0.7) / frac))
+        ds = lgb.Dataset(X[:, ci], y, weight=wr, feature_name=[cols[i] for i in ci], free_raw_data=True)
+        m = lgb.train(prm, ds, num_boost_round=cfg.get("rounds", ROUNDS))
+        parts.append((m, ci))
+        pr = m.predict(X[:, ci])
+        pred = pr if pred is None else (pred * len(parts[:-1]) + pr) / len(parts)
+    return _DE(parts)
 
 
 class _XGB:

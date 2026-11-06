@@ -1,0 +1,29 @@
+name: 메타 라벨링 실험
+run-name: "메타 라벨링 실험 top=${{ inputs.top || '20' }}"
+on:
+  workflow_dispatch:
+    inputs:
+      top:
+        description: "일별 상위 N 후보"
+        default: "20"
+permissions:
+  contents: read
+jobs:
+  meta:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q pandas pyarrow numpy lightgbm scikit-learn
+      - name: 검증 캐시 받기
+        run: |
+          git fetch -q --depth=1 origin stock-data
+          mkdir -p stock/data
+          git --work-tree=stock/data checkout -q FETCH_HEAD -- oos_y_oc10.parquet
+          git reset -q
+      - run: python -m stock.meta --top=${{ inputs.top || '20' }}
