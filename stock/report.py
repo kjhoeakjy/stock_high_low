@@ -41,7 +41,7 @@ LABELS = {
     "alert15": ("15일 +100% (경고 예고 조건)", None), "heat40": ("40일 평균가 대비", _pct),
     "logval": ("거래대금", lambda v: f"{np.exp(v)/1e8:,.0f}억"), "vr5": ("거래량/5일 평균", _x), "vr20": ("거래량/20일 평균", _x),
     "vr60": ("거래량/60일 평균", _x), "vr_prev": ("전전일/전일 거래량", _x), "turn": ("회전율", _pct), "turn5": ("5일 평균 회전율", _pct),
-    "turn2_40": ("2일 회전율/40일 (과열 조건)", _x), "vz20": ("거래량 z점수", lambda v: f"{v:.1f}"), "val20": ("20일 평균 거래대금", lambda v: f"{np.exp(v)/1e8:,.0f}억"),
+    "turn2_40": ("2일 회전율/40일 (과열 조건)", _x), "vz20": ("거래량 표준점수", lambda v: f"{v:.1f}"), "val20": ("20일 평균 거래대금", lambda v: f"{np.exp(v)/1e8:,.0f}억"),
     "zero_vol": ("무거래", None),
     "logmcap": ("시가총액", lambda v: f"{np.exp(v)/1e8:,.0f}억"), "logp": ("주가", lambda v: f"{np.exp(v):,.0f}원"), "penny": ("1,000원 미만 저가주", None),
     "frate": ("외국인 보유율", lambda v: f"{v:.1f}%"), "frate_d5": ("외국인 보유율 5일 변화", lambda v: f"{v:+.2f}%p"),

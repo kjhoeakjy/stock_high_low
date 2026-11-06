@@ -104,17 +104,17 @@ def _sell_market(st: dict, code: str, qty: int, reason: str, live: bool) -> bool
     try:
         book = kis().orderbook(code)
         if not book["bids"] or book["bids"][0][0] <= 0:
-            raise RuntimeError("매수 호가 없음(하한가 잠김·거래정지)")
+            raise RuntimeError("매수 호가 없음(하한가 체결 불가·거래정지)")
         r = kis().order("sell", code, qty, 0)
         st.setdefault("orders", []).append({"t": now_kst().strftime("%Y-%m-%d %H:%M:%S"), "side": "sell", "code": code, "qty": qty, "why": reason,
                                             "no": r.get("order_no"), "org": r.get("org_no"), "filled": None})
         p["qty"], p["tries"], p["order_no"], p["ordered_at"] = qty, p.get("tries", 0) + 1, r.get("order_no"), time.time()
         p.pop("last_err", None)
-        note(st, f"매도 주문 접수 {code} {qty}주 · {reason} · {r.get('msg')} → 체결 확인 대기")
+        note(st, f"매도 주문 접수 {code} {qty}주 · {reason} · {r.get('msg')} · 체결 확인 대기")
         return True
     except Exception as e:  # noqa: BLE001
         p["qty"], p["tries"], p["last_err"] = qty, p.get("tries", 0) + 1, str(e)[:120]
-        note(st, f"매도 주문 실패 → 재시도 대기 {code} {qty}주 · {e}")
+        note(st, f"매도 주문 실패 · 재시도 대기 {code} {qty}주 · {e}")
         return False
 
 
@@ -174,7 +174,7 @@ def sweep_pending(st: dict, live: bool | None = None) -> None:
             for o in open_sells:
                 try:
                     kis().cancel(o["order_no"], o["org_no"])
-                    note(st, f"매도 미체결 취소 {p.get('name') or code} {o['qty']}주 → 재주문")
+                    note(st, f"매도 미체결 취소 {p.get('name') or code} {o['qty']}주 · 재주문")
                 except Exception as e:  # noqa: BLE001
                     note(st, f"매도 취소 실패 {code} · {e}")
             p["ordered_at"] = None
@@ -213,7 +213,7 @@ def track_deposits(st: dict, eq: dict) -> None:
         st["day"]["deposit_checked"] = True
         if abs(delta) >= 10_000:
             st["capital"] = capital(st) + delta
-            note(st, f"입출금 감지 {delta:+,}원 → 기준 자금 {capital(st):,}원(보호선 {int(capital(st) * HALT_EQUITY):,}원)")
+            note(st, f"입출금 감지 {delta:+,}원 · 기준 자금 {capital(st):,}원으로 갱신(보호선 {int(capital(st) * HALT_EQUITY):,}원)")
     st["eod"] = {"date": today, "d2_cash": int(d2), "total": eq["total"]}
 
 
@@ -225,7 +225,7 @@ def check_limits(st: dict, eq: dict) -> None:
     d = st.get("day") or {}
     if d.get("start_equity") and eq["total"] / d["start_equity"] - 1 <= -DAY_LOSS and not d.get("no_buy"):
         d["no_buy"], d["day_loss_hit"] = True, True
-        note(st, f"일일 손실 한도 도달({eq['total']/d['start_equity']-1:+.1%}) → 전량 청산·당일 매수 금지")
+        note(st, f"일일 손실 한도 도달({eq['total']/d['start_equity']-1:+.1%}) · 전량 청산·당일 매수 금지")
         liquidate(st, "일일 손실 한도")
 
 
@@ -236,7 +236,7 @@ def can_buy(st: dict, hms: str) -> tuple[bool, str]:
     if d.get("no_buy"):
         return False, d.get("no_buy_reason") or "당일 매수 금지"
     if not (BUY_WINDOW[0] <= hms <= BUY_WINDOW[1]):
-        return False, "매수 시간 아님"
+        return False, "매수 시간 외"
     if d.get("bought"):
         return False, "매수 완료"
     return True, "가능"
@@ -254,7 +254,7 @@ def buy(st: dict, plan: list[dict], day: str) -> None:
         note(st, f"매수 보류(주문 내역·주문가능금액 조회 실패) · {e}")
         return
     if already:
-        note(st, f"당일 기존 매수 주문 감지 {sorted(already)} → 해당 종목 건너뜀")
+        note(st, f"당일 기존 매수 주문 감지 {sorted(already)} · 해당 종목 제외")
     spent = 0
     for it in plan:
         if it["code"] in already:
@@ -263,7 +263,7 @@ def buy(st: dict, plan: list[dict], day: str) -> None:
             book = kis().orderbook(it["code"])
             ask = book["asks"][0] if book["asks"] else (0, 0)
             if ask[0] <= 0:
-                note(st, f"매수 생략 {it['name']} · 매도 호가 없음(상한가 잠김)")
+                note(st, f"매수 생략 {it['name']} · 매도 호가 없음(상한가 체결 불가)")
                 continue
             if it.get("close") and ask[0] / it["close"] - 1 >= MAX_GAP_BUY:
                 note(st, f"매수 생략 {it['name']} · 시가 갭 {ask[0]/it['close']-1:+.0%} ≥ {MAX_GAP_BUY:.0%}")
@@ -282,7 +282,7 @@ def buy(st: dict, plan: list[dict], day: str) -> None:
             placed.append({"code": it["code"], "name": it["name"], "qty": qty, "price": ask[0], "no": r.get("order_no"), "org": r.get("org_no"), "t": time.time()})
             st.setdefault("orders", []).append({"t": now_kst().strftime("%Y-%m-%d %H:%M:%S"), "side": "buy", "code": it["code"], "qty": qty, "price": ask[0],
                                                 "no": r.get("order_no"), "org": r.get("org_no"), "filled": None})
-            note(st, f"매수 주문 접수 {it['name']} {qty}주 @ {ask[0]:,} · {r.get('msg')} → 체결 확인 대기")
+            note(st, f"매수 주문 접수 {it['name']} {qty}주 @ {ask[0]:,} · {r.get('msg')} · 체결 확인 대기")
             d["bought"], d["buy_orders"] = True, placed
             save(st)  # 주문 직후 저장(중단 시 중복 주문 방지)
         except Exception as e:  # noqa: BLE001
@@ -373,7 +373,7 @@ def cycle(day: str, hms: str, plan: list[dict], exits: dict[str, str]) -> dict:
     if (st.get("day") or {}).get("date") != day:
         st["day"] = {"date": day, "start_equity": None, "no_buy": False, "bought": False, "late": hms > BUY_WINDOW[1]}
         if st["day"]["late"]:
-            st["day"]["no_buy"], st["day"]["no_buy_reason"] = True, "장 시작 후 지각 실행"
+            st["day"]["no_buy"], st["day"]["no_buy_reason"] = True, "장 시작 후 지연 실행"
     d = st["day"]
     if m in ("observe", "live") or st.get("halted"):
         try:
@@ -453,7 +453,7 @@ def main(argv):
         halt(st, "수동 정지")
     elif cmd == "resume":
         st["halted"], st["halt_reason"] = False, None
-        note(st, "자동 매매 재개(사용자)")
+        note(st, "자동 매매 수동 재개")
     elif cmd == "liquidate":
         liquidate(st, "수동 전량 매도", live=True)
     elif cmd == "eod":  # 장 마감 후 점검: 남은 보유는 다음 거래일 매도 대기
@@ -461,7 +461,7 @@ def main(argv):
             confirm_fills(st, now_kst().strftime("%Y%m%d"))
             for h in equity()["holdings"]:
                 want_sell(st, h["code"], h["qty"], "마감 후 잔여 보유", h.get("name"))
-                note(st, f"잔여 보유 {h['name']} {h['qty']}주 → 다음 거래일 매도 대기")
+                note(st, f"잔여 보유 {h['name']} {h['qty']}주 · 다음 거래일 매도 대기")
             for a in (st.get("day") or {}).get("fills") or []:
                 print(f"[guard] 체결 {a['side']} {a['name']} {a['filled']}/{a['ordered']}주 평단 {a['avg']}")
         except Exception as e:  # noqa: BLE001
