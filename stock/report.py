@@ -373,7 +373,8 @@ def _account() -> dict | None:
     try:
         a = json.loads(p.read_text())
         return {"cash": a.get("cash"), "total": a.get("total"), "stock_eval": a.get("stock_eval"), "at": a.get("at"), "mode": a.get("mode"),
-                "holdings": [{"name": h["name"], "qty": h["qty"], "avg": h["avg"], "price": h["price"]} for h in a.get("holdings", [])]}
+                "holdings": [{"name": h["name"], "qty": h["qty"], "avg": h["avg"], "price": h["price"]} for h in a.get("holdings", [])],
+                "fills": a.get("fills") or {}}
     except Exception:  # noqa: BLE001
         return None
 

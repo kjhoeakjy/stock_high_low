@@ -277,6 +277,10 @@ function delTrade(date){lsSet(LSK.tr,trades().filter(x=>x.date!==date));renderRe
 function renderRecord(){
   const el=document.getElementById('myrec'); if(!el)return;
   const t=trades(), b=balances(), bal={}; b.forEach(x=>{bal[x.date]=x.amt;});
+  // 증권사 체결 내역(아침 스냅샷에 포함)을 자동 행으로: 직접 저장한 날짜가 없으면 매수 체결을 매수 내역으로
+  const F=(DATA&&DATA.account&&DATA.account.fills)||{};
+  Object.keys(F).forEach(d8=>{const date=fmtDate(d8); if(t.some(x=>x.date===date))return; const buys=F[d8].filter(f=>f.side==='buy'&&f.qty>0).map(f=>({code:f.code,name:f.name,n:f.qty,price:Math.round(f.price)})); if(buys.length)t.push({date,capital:buys.reduce((a,x)=>a+x.n*x.price,0),buys,auto:true});});
+  t.sort((a,b)=>a.date<b.date?-1:1);
   const hist={}; ((DATA&&DATA.history)||[]).forEach(h=>{const m={};(h.up||[]).forEach(u=>{m[u.name]=u;});hist[fmtDate(h.target_date)]=m;});
   const days=[...new Set([...t.map(x=>x.date),...b.map(x=>x.date)])].sort();
   if(!days.length){el.innerHTML='<div class="ev">기록 없음. 장전 후보 탭에서 매수 확정, 장 마감 후 잔고를 입력하면 여기에 쌓임.</div>';document.getElementById('recsub').textContent='';return;}
@@ -285,7 +289,7 @@ function renderRecord(){
     if(r!=null){n++;if(r>0)wins++;} if(amt!=null)prevBal=amt;
     const hm=hist[date]||{};
     const buys=d?d.buys.map((x,i)=>{const h=hm[x.name], res=h?(h.tnet!=null?`진입·청산 ${sgn(h.tnet)}`:h.oc!=null?`시가→종가 ${sgn(h.oc)}`:''):'';return `<div class="buy"><b>${x.name}</b> <input type="number" value="${x.n}" onchange="editBuy('${date}',${i},'n',this.value)">주 × <input type="number" value="${x.price}" onchange="editBuy('${date}',${i},'price',this.value)">원 = ${(x.n*x.price).toLocaleString()}${res?` <small class="${cls(h.tnet!=null?h.tnet:h.oc)}">${res}</small>`:''}</div>`;}).join(''):'<small style="color:var(--mut)">매수 내역 없음</small>';
-    return `<tr><td class="l"><b>${date}</b>${d?`<br><small style="color:var(--mut);cursor:pointer" onclick="delTrade('${date}')">매수 내역 삭제</small>`:''}</td><td class="l" style="white-space:normal">${buys}</td><td>${cap!=null?cap.toLocaleString():'-'}</td><td>${amt!=null?amt.toLocaleString():'<small style="color:var(--mut)">미입력</small>'}${amt!=null?`<br><small style="color:var(--mut);cursor:pointer" onclick="delBalance('${date}')">삭제</small>`:''}</td><td class="big ${cls(r)}">${r==null?'-':sgn(r)}${pnl!=null?`<br><small style="color:var(--mut)">${(pnl>=0?'+':'')+pnl.toLocaleString()}원</small>`:''}</td><td class="${cls(cum)}">${cum==null?'-':sgn(cum)}</td></tr>`;});
+    return `<tr><td class="l"><b>${date}</b>${d&&d.auto?'<br><small style="color:var(--mut)">증권사 체결</small>':d?`<br><small style="color:var(--mut);cursor:pointer" onclick="delTrade('${date}')">매수 내역 삭제</small>`:''}</td><td class="l" style="white-space:normal">${buys}</td><td>${cap!=null?cap.toLocaleString():'-'}</td><td>${amt!=null?amt.toLocaleString():'<small style="color:var(--mut)">미입력</small>'}${amt!=null?`<br><small style="color:var(--mut);cursor:pointer" onclick="delBalance('${date}')">삭제</small>`:''}</td><td class="big ${cls(r)}">${r==null?'-':sgn(r)}${pnl!=null?`<br><small style="color:var(--mut)">${(pnl>=0?'+':'')+pnl.toLocaleString()}원</small>`:''}</td><td class="${cls(cum)}">${cum==null?'-':sgn(cum)}</td></tr>`;});
   const last=prevBal, cum=(last!=null&&first)?last/first-1:null;
   document.getElementById('recsub').innerHTML=`시작 ${first!=null?first.toLocaleString()+'원':'-'} · 현재 ${last!=null?last.toLocaleString()+'원':'-'} · 누적 <b class="${cls(cum)}">${cum==null?'-':sgn(cum)}</b> · 거래일 ${n} · 수익일 ${wins}`;
   el.innerHTML=`<table class="lv"><tr><th class="l">날짜</th><th class="l">매수 내역</th><th>투자 금액</th><th>마감 잔고</th><th>일 수익</th><th>누적</th></tr>${rows.reverse().join('')}</table>`;

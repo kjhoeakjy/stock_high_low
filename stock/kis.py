@@ -170,6 +170,21 @@ def main(argv: list[str]) -> None:
         b = k.balance()
         b["at"] = time.strftime("%Y-%m-%d %H:%M", time.gmtime(time.time() + 9 * 3600))
         b["mode"] = k.mode
+        # 최근 7일 체결 내역(날짜별) → 화면 '내 기록'에 자동 반영
+        fills = {}
+        for i in range(1, 8):
+            d = time.strftime("%Y%m%d", time.gmtime(time.time() + 9 * 3600 - 86400 * i))
+            if time.gmtime(time.time() + 9 * 3600 - 86400 * i).tm_wday >= 5:
+                continue
+            try:
+                f = k.fills(d)
+            except Exception as e:  # noqa: BLE001
+                print(f"[kis] fills {d} 실패: {e}")
+                continue
+            if f:
+                fills[d] = f
+            time.sleep(0.3)
+        b["fills"] = fills
         DATA.mkdir(parents=True, exist_ok=True)
         (DATA / "kis_account.json").write_text(json.dumps(b, ensure_ascii=False))
         print(f"[kis] snapshot cash={b['cash']:,} total={b['total']:,} holdings={len(b['holdings'])}")
