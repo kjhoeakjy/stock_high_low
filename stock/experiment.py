@@ -89,6 +89,15 @@ CONFIGS = {
     "oc10_cat_ens": {"target": "oc10", "hard_neg": 3.0, "half_life": 24, "ens": [{}, {"seed_off": 1}, {"lib": "cat"}]},  # LGBM 2시드 + CatBoost 순위 평균
     "oc10_de": {"target": "oc10", "hard_neg": 3.0, "half_life": 24, "de": 3},                             # DoubleEnsemble-lite(손실 재가중+변수 부분집합 3회)
     "oc10_de_s3": {"target": "oc10", "hard_neg": 3.0, "half_life": 24, "de": 3, "n_seeds": 3},
+    # 하이퍼파라미터 격자(운영 구성 s3_hl24 기준)
+    "hp_lr02_r1200": {"target": "oc10", "hard_neg": 3.0, "half_life": 24, "n_seeds": 3, "params": {"learning_rate": 0.02}, "rounds": 1200},
+    "hp_lr05_r400": {"target": "oc10", "hard_neg": 3.0, "half_life": 24, "n_seeds": 3, "params": {"learning_rate": 0.05}, "rounds": 400},
+    "hp_leaves127": {"target": "oc10", "hard_neg": 3.0, "half_life": 24, "n_seeds": 3, "params": {"num_leaves": 127, "min_data_in_leaf": 400}},
+    "hp_leaves31": {"target": "oc10", "hard_neg": 3.0, "half_life": 24, "n_seeds": 3, "params": {"num_leaves": 31, "min_data_in_leaf": 100}},
+    "hp_ff05_bag07": {"target": "oc10", "hard_neg": 3.0, "half_life": 24, "n_seeds": 3, "params": {"feature_fraction": 0.5, "bagging_fraction": 0.7}},
+    "hp_l2_30_minleaf500": {"target": "oc10", "hard_neg": 3.0, "half_life": 24, "n_seeds": 3, "params": {"lambda_l2": 30.0, "min_data_in_leaf": 500}},
+    "hp_neg50": {"target": "oc10", "hard_neg": 3.0, "half_life": 24, "n_seeds": 3, "neg_keep": 0.5},
+    "hp_hn5": {"target": "oc10", "hard_neg": 5.0, "half_life": 24, "n_seeds": 3},
 }
 
 

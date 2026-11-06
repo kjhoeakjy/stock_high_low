@@ -82,7 +82,45 @@ class _MLP:
         return self.m.predict_proba(X.reshape(len(X), -1))[:, 1]
 
 
+class _TabPFN:
+    """TabPFN v2(CPU): 시퀀스 요약 통계(각 변수의 최근 1·5·20·60일 평균·표준편차)를 표 입력으로, 컨텍스트는 최근 표본 n_ctx행(양성 전부+음성 표본)."""
+    def __init__(self, X, y, seed, n_ctx=10000):
+        from tabpfn import TabPFNClassifier
+        self.m = TabPFNClassifier(device="cpu", n_estimators=4, random_state=seed, ignore_pretraining_limits=True)
+        F = self.flat(X)
+        rng = np.random.default_rng(seed)
+        pos = np.flatnonzero(y > 0)
+        neg = np.flatnonzero(y <= 0)
+        n_neg = max(0, n_ctx - len(pos))
+        if len(pos) > n_ctx // 2:
+            pos = rng.choice(pos, n_ctx // 2, replace=False)
+            n_neg = n_ctx - len(pos)
+        neg = neg[-n_neg * 3:] if len(neg) > n_neg * 3 else neg  # 최근 쪽 우선
+        neg = rng.choice(neg, min(n_neg, len(neg)), replace=False)
+        idx = np.sort(np.r_[pos, neg])
+        self.m.fit(F[idx], y[idx].astype(int))
+
+    @staticmethod
+    def flat(X):
+        parts = []
+        for w in (1, 5, 20, 60):
+            seg = X[:, -w:, :]
+            parts.append(seg.mean(1))
+            if w > 1:
+                parts.append(seg.std(1))
+        return np.concatenate(parts, axis=1).astype("float32")
+
+    def predict(self, X):
+        F = self.flat(X)
+        out = np.zeros(len(F), "float32")
+        for i in range(0, len(F), 2000):
+            out[i:i + 2000] = self.m.predict_proba(F[i:i + 2000])[:, 1]
+        return out
+
+
 def fit_gru(X: np.ndarray, y: np.ndarray, epochs: int, seed: int = 0):
+    if BACKEND.get("name") == "tabpfn":
+        return _TabPFN(X, y, seed, BACKEND.get("n_ctx", 10000))
     try:
         import torch
     except ImportError:
@@ -124,8 +162,11 @@ def fit_gru(X: np.ndarray, y: np.ndarray, epochs: int, seed: int = 0):
     return net
 
 
+BACKEND: dict = {}
+
+
 def predict_gru(net, X: np.ndarray) -> np.ndarray:
-    if isinstance(net, _MLP):
+    if isinstance(net, (_MLP, _TabPFN)):
         return net.predict(X)
     import torch
     with torch.no_grad():
@@ -179,6 +220,8 @@ def evaluate(r: pd.DataFrame, score: str, k: int = 5) -> dict:
 def main(argv):
     arg = lambda k, d: next((a.split("=", 1)[1] for a in argv if a.startswith(f"--{k}=")), d)  # noqa: E731
     top, seq, min_train, refit, epochs = int(arg("top", 200)), int(arg("seq", 60)), int(arg("min_train", 6)), int(arg("refit", 3)), int(arg("epochs", 4))
+    BACKEND.update(name=arg("backend", "gru"), n_ctx=int(arg("n_ctx", 10000)))
+    print(f"[rerank] backend={BACKEND['name']}")
     c = candidates(top)
     print(f"[rerank] 후보 {len(c)}건 · 일수 {c['date'].nunique()} · 양성 {c['label'].mean():.3f}")
     t0 = time.time()
@@ -194,7 +237,7 @@ def main(argv):
         print("[rerank]", json.dumps(evaluate(sub, sc), ensure_ascii=False))
     for y, g in sub.groupby(sub["date"].str[:4]):
         print(f"[rerank] {y} " + " · ".join(f"{sc}: p@5 {evaluate(g, sc)['p@5']} net {evaluate(g, sc)['net_day']}" for sc in ("p", "avg_rank", "stack")))
-    r[["date", "code", "p", "gru", "stack", "label", "net"]].to_parquet(DATA / "rerank_oos.parquet", index=False)
+    r[["date", "code", "p", "gru", "stack", "label", "net"]].to_parquet(DATA / f"rerank_oos_{BACKEND['name']}.parquet", index=False)
 
 
 if __name__ == "__main__":

@@ -1,17 +1,23 @@
 name: 2단계 재순위 실험
-run-name: "2단계 재순위 top=${{ inputs.top || '200' }} epochs=${{ inputs.epochs || '4' }}"
+run-name: "2단계 재순위 ${{ inputs.backend || 'gru' }} top=${{ inputs.top || '200' }}"
 on:
   workflow_dispatch:
     inputs:
-      top:
-        description: "일별 상위 N 후보"
-        default: "200"
       epochs:
         description: "GRU 에폭"
         default: "4"
       refit:
         description: "GRU 재학습 주기(개월)"
         default: "3"
+      backend:
+        description: "gru | tabpfn(CPU, 컨텍스트 n_ctx행) | mlp"
+        default: "gru"
+      n_ctx:
+        description: "tabpfn 컨텍스트 행 수"
+        default: "10000"
+      top:
+        description: "일별 상위 N 후보"
+        default: "200"
 permissions:
   contents: read
 jobs:
@@ -26,14 +32,16 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -q pandas pyarrow numpy lightgbm scikit-learn && pip install -q torch --index-url https://download.pytorch.org/whl/cpu
+      - if: ${{ inputs.backend == 'tabpfn' }}
+        run: pip install -q tabpfn
       - name: 자료 받기
         run: |
           git fetch -q --depth=1 origin stock-data
           mkdir -p stock/data
           git --work-tree=stock/data checkout -q FETCH_HEAD -- oos_y_oc10.parquet prices.parquet
           git reset -q
-      - run: python -m stock.rerank --top=${{ inputs.top || '200' }} --epochs=${{ inputs.epochs || '4' }} --refit=${{ inputs.refit || '3' }}
+      - run: python -m stock.rerank --top=${{ inputs.top || '200' }} --epochs=${{ inputs.epochs || '4' }} --refit=${{ inputs.refit || '3' }} --backend=${{ inputs.backend || 'gru' }} --n_ctx=${{ inputs.n_ctx || '10000' }}
       - uses: actions/upload-artifact@v4
         with:
-          name: rerank_oos
-          path: stock/data/rerank_oos.parquet
+          name: rerank_oos_${{ inputs.backend || 'gru' }}
+          path: stock/data/rerank_oos_*.parquet
