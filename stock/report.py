@@ -324,16 +324,27 @@ def grade_history(actual: pd.DataFrame) -> list[dict]:
         if a is not None and len(a):
             h["graded"] = True
             h["actual_up_count"] = int((a["ret1"] >= 0.295).sum())
+            # 장중 기록(09:05 진입·15:15 청산)이 있으면 실제 진입·청산 순수익을 함께 기록
+            tl = crypt.read_json(DATA / "live_trades" / f"{tgt}.json", None) if tgt else None
+            if tl and tl.get("items"):
+                for it in h.get("up", []):
+                    ti = tl["items"].get(it["code"])
+                    if ti:
+                        it["trade_entry"], it["trade_exit"], it["trade_net"], it["trade_skip"] = ti.get("entry"), ti.get("exit"), ti.get("net"), ti.get("skip")
+                h["trade_net_day"] = tl.get("net_day")
+                h["trade_flag"] = tl.get("trade")
             crypt.write_json(f, h)
         graded.append({"target_date": tgt, "graded": h.get("graded", False),
                        "up_hits": sum(1 for it in h.get("up", [])[:5] if it.get("hit")),
                        "up_touch": sum(1 for it in h.get("up", [])[:5] if it.get("touch")),
                        "up_10": sum(1 for it in h.get("up", [])[:5] if it.get("actual_ret") is not None and it["actual_ret"] >= 0.10),
                        "up_5": sum(1 for it in h.get("up", [])[:5] if it.get("actual_ret") is not None and it["actual_ret"] >= 0.05),
+                       "trade_net_day": h.get("trade_net_day"), "trade_flag": h.get("trade_flag"),
                        "up_mean_ret": float(np.mean([it["actual_ret"] for it in h.get("up", [])[:5] if "actual_ret" in it])) if any("actual_ret" in it for it in h.get("up", [])[:5]) else None,
                        "up_mean_oc": float(np.mean([it["actual_oc"] for it in h.get("up", [])[:5] if it.get("actual_oc") is not None])) if any(it.get("actual_oc") is not None for it in h.get("up", [])[:5]) else None,
                        "actual_up_count": h.get("actual_up_count"),
-                       "up": [{"name": it["name"], "p": it["p"], "ret": it.get("actual_ret"), "oc": it.get("actual_oc"), "hit": it.get("hit")} for it in h.get("up", [])[:5]]})
+                       "up": [{"name": it["name"], "p": it["p"], "ret": it.get("actual_ret"), "oc": it.get("actual_oc"), "hit": it.get("hit"),
+                               "tnet": it.get("trade_net"), "tskip": it.get("trade_skip")} for it in h.get("up", [])[:5]]})
     return graded
 
 
@@ -365,6 +376,7 @@ def _append_perf(doc: dict, st: dict) -> list[dict]:
     live_n = sum(len(h.get("up", [])) for h in graded)
     live_hits = sum(h.get("up_hits", 0) for h in graded)
     live_10 = sum(h.get("up_10", 0) for h in graded)
+    tn = [h["trade_net_day"] for h in graded if h.get("trade_net_day") is not None]
     rec = {"as_of": doc["as_of"], "train_rows": doc.get("train_rows"), "n_features": doc.get("n_features"),
            "train_from": doc.get("train_from"), "pos": st.get("pos"), "days": st.get("days"),
            "p@5": st.get("p@5"), "p@10": st.get("p@10"), "ap": st.get("ap"), "auc": st.get("auc"),
@@ -374,7 +386,8 @@ def _append_perf(doc: dict, st: dict) -> list[dict]:
            "net_trade_day": (st.get("net") or {}).get("trade_day"), "net_trade_frac": (st.get("net") or {}).get("trade_frac"),
            "live_days": len(graded), "live_n": live_n, "live_hits": live_hits,
            "live_rate": (live_hits / live_n) if live_n else None, "live_10": live_10,
-           "live_rate10": (live_10 / live_n) if live_n else None}
+           "live_rate10": (live_10 / live_n) if live_n else None,
+           "live_trade_days": len(tn), "live_trade_net": (float(np.mean(tn)) if tn else None), "live_trade_cum": (float(np.sum(tn)) if tn else None)}
     perf = [x for x in perf if x.get("as_of") != rec["as_of"]] + [rec]
     perf.sort(key=lambda x: x["as_of"])
     crypt.write_json(path, perf)
@@ -397,8 +410,15 @@ def write(last: pd.DataFrame, actual: pd.DataFrame, res: dict, universe: list[di
                        "r1": float(g["close"].iloc[-1] / g["close"].iloc[-2] - 1)}
     mk["n_up_yesterday"] = int((last["ret1"] >= 0.295).sum())
 
+    # 미거래일 규칙: 상위 5 평균 점수가 검증 기간 하위 30% 분위 미만이면 거래하지 않음
+    net_st = (stats.get("y_oc10") or {}).get("net") or {}
+    top5 = [it for it in today["up"][:5]]
+    trade_score = float(np.mean([it["raw_oc"] for it in top5])) if top5 and all("raw_oc" in it for it in top5) else None
+    trade_thr = net_st.get("thr")
+    trade_today = (trade_score >= trade_thr) if (trade_score is not None and trade_thr is not None) else None
     doc = {
         "generated_at": (dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=9)).strftime("%Y-%m-%d %H:%M"),
+        "trade_today": trade_today, "trade_score": trade_score, "trade_thr": trade_thr,
         "as_of": today["as_of"], "target_date": target_date, "n_scored": today["n_scored"],
         "expected_up": round(today["expected_up"], 2),
         "up": today["up"], "market": mk,

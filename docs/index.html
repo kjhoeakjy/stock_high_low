@@ -146,13 +146,17 @@ async function loadLive(){
   if(d.market.KOSDAQ)mk.insertAdjacentHTML('beforeend',`<div><b>코스닥</b><span class="${cls(d.market.KOSDAQ.r1)}">${sgn(d.market.KOSDAQ.r1)}</span></div>`);
   mk.insertAdjacentHTML('beforeend',`<div><b>상한가</b>${d.n_limit}</div><div><b>10%↑</b>${d.n_up10}</div>${d.up_ratio!=null?`<div><b>상승 비율</b>${Math.round(d.up_ratio*100)}%</div>`:''}`);
   const st=x=>`<span class="st ${x.status=='상한가'?'lim':''}">${x.status}</span>${x.gap!=null&&x.gap>=0.295?'<br><small style="color:var(--mut)">시가 상한가 · 매수 불가</small>':''}`;
-  const row=(x,i,withRank)=>`<tr><td class="l">${withRank?`<span class="rank">${x.morning_rank||i+1}</span>`:''}<b>${x.name}</b>${x.pref?' <small style="color:var(--mut)">우선주</small>':''}</td><td>${x.p!=null?pf(x.p):'-'}</td><td>${x.price.toLocaleString()}</td><td class="big ${cls(x.ret)}">${sgn(x.ret)}</td><td class="${cls(x.o_ret)}">${x.o_ret==null?'-':sgn(x.o_ret)}</td><td>${x.hi_ret==null?'-':sgn(x.hi_ret)}</td><td>${x.status=='상한가'?'도달':f(x.to_limit,1)}</td><td>${x.val!=null?won(x.val):'-'}</td><td>${st(x)}</td></tr>`;
-  const head=`<tr><th class="l">종목</th><th>장전 확률</th><th>현재가</th><th>등락률</th><th>시가 대비</th><th>고가</th><th>상한가 괴리</th><th>거래대금</th><th>상태</th></tr>`;
-  const tbl=(rows,withRank)=>rows.length?`<table class="lv">${head}${rows.map((x,i)=>row(x,i,withRank)).join('')}</table>`:'<div class="ev" style="margin-bottom:18px">없음</div>';
+  const TR=(LIVE&&LIVE.trades&&LIVE.trades.items)||{};
+  const tcell=x=>{const t=TR[x.code];if(!t)return '<td>-</td><td>-</td>';if(t.skip)return `<td>-</td><td><small style="color:var(--mut)">${t.skip}</small></td>`;const v=t.net!=null?t.net:t.now;return `<td>${t.entry.toLocaleString()}</td><td class="${cls(v)}">${v==null?'-':sgn(v)}${t.net!=null?'<br><small style="color:var(--mut)">청산 '+t.exit.toLocaleString()+'</small>':''}</td>`;};
+  const row=(x,i,withRank)=>`<tr><td class="l">${withRank?`<span class="rank">${x.morning_rank||i+1}</span>`:''}<b>${x.name}</b>${x.pref?' <small style="color:var(--mut)">우선주</small>':''}</td><td>${x.p!=null?pf(x.p):'-'}</td><td>${x.price.toLocaleString()}</td><td class="big ${cls(x.ret)}">${sgn(x.ret)}</td><td class="${cls(x.o_ret)}">${x.o_ret==null?'-':sgn(x.o_ret)}</td>${withRank?tcell(x):''}<td>${x.hi_ret==null?'-':sgn(x.hi_ret)}</td><td>${x.status=='상한가'?'도달':f(x.to_limit,1)}</td><td>${x.val!=null?won(x.val):'-'}</td><td>${st(x)}</td></tr>`;
+  const head=w=>`<tr><th class="l">종목</th><th>장전 확률</th><th>현재가</th><th>등락률</th><th>시가 대비</th>${w?'<th>진입가 09:05</th><th>진입 대비</th>':''}<th>고가</th><th>상한가 괴리</th><th>거래대금</th><th>상태</th></tr>`;
+  const tbl=(rows,withRank)=>rows.length?`<table class="lv">${head(withRank)}${rows.map((x,i)=>row(x,i,withRank)).join('')}</table>`:'<div class="ev" style="margin-bottom:18px">없음</div>';
   const mrows=(MODE==='common'?d.morning.filter(x=>!x.pref):MODE==='liquid'?d.morning.filter(x=>!x.pref&&x.val!=null):d.morning).slice(0,5);
   document.getElementById('live-morning').innerHTML=tbl(mrows,true);
   const nl=mrows.filter(x=>x.status=='상한가').length, nt=mrows.filter(x=>x.status=='도달 후 이탈').length, mr=mrows.length?mrows.reduce((a,x)=>a+x.ret,0)/mrows.length:null, mo=mrows.filter(x=>x.o_ret!=null), moc=mo.length?mo.reduce((a,x)=>a+x.o_ret,0)/mo.length:null;
-  document.getElementById('msum').innerHTML=mrows.length?`<b style="color:var(--up);font-size:20px">${mrows.length}종목 중 상한가 ${nl}</b>${nt?` · 도달 후 이탈 ${nt}`:''} · 평균 등락 <b class="${cls(mr)}">${sgn(mr)}</b>${moc!=null?` · 시가 매수 평균 <b class="${cls(moc)}">${sgn(moc)}</b>`:''}`:'';
+  const tl=d.trades||null, tline=tl&&tl.n_entered?(tl.net_day!=null?` · <b>09:05 진입·15:15 청산 순수익 <span class="${cls(tl.net_day)}">${sgn(tl.net_day)}</span></b>(${tl.n_entered}종목, 비용 차감)`:` · 진입 대비 <b class="${cls(tl.open_day)}">${sgn(tl.open_day)}</b>(${tl.n_entered}종목 09:05 진입)`):'';
+  const flag=(DATA&&DATA.trade_today===false)?'<span class="halt">미거래일(점수 하위)</span> ':'';
+  document.getElementById('msum').innerHTML=mrows.length?`${flag}<b style="color:var(--up);font-size:20px">${mrows.length}종목 중 상한가 ${nl}</b>${nt?` · 도달 후 이탈 ${nt}`:''} · 평균 등락 <b class="${cls(mr)}">${sgn(mr)}</b>${moc!=null?` · 시가 매수 평균 <b class="${cls(moc)}">${sgn(moc)}</b>`:''}${tline}`:'';
   document.getElementById('live-limit').innerHTML=tbl(d.limit,false);
   document.getElementById('live-near').innerHTML=tbl(d.near.slice(0,30),false);
   document.getElementById('lockline').textContent=`장중 상한가 도달 종목의 상한가 마감 비율 ${Math.round(d.lock_rate.all*100)}% · 장전 후보 ${Math.round(d.lock_rate.morning*100)}%`;
@@ -190,7 +194,7 @@ async function main(){
   const names={KOSPI:'코스피',KOSDAQ:'코스닥',NASDAQ:'나스닥',SOX:'반도체',USDKRW:'환율',VIX:'VIX'};
   for(const k of Object.keys(names)){ if(!m[k])continue; mk.insertAdjacentHTML('beforeend',`<div><b>${names[k]}</b><span class="${cls(m[k].r1)}">${sgn(m[k].r1)}</span></div>`);}
   mk.insertAdjacentHTML('beforeend',`<div><b>전일 상한가</b>${m.n_up_yesterday}</div>`);
-  document.getElementById('upsub').textContent=`예상 상한가 수 ${d.expected_up.toFixed(1)}`;
+  document.getElementById('upsub').innerHTML=(d.trade_today===false?'<span class="halt">미거래 권고</span> 상위 5 평균 점수가 검증 기간 하위 30% 미만 · ':d.trade_today===true?'<span class="halt" style="background:#1f3a2a;color:#9fe3b4">거래일</span> ':'')+`예상 상한가 수 ${d.expected_up.toFixed(1)}`;
   document.getElementById('rankline').textContent=(d.up[0]&&d.up[0].p_oc!=null)?'순위는 시가 매수→종가 +10% 모델 점수 기준. ':'';
   render('up',d.up,'var(--up)');
   loadLive();
@@ -337,6 +341,7 @@ function provisionalRow(){
   return {target_date:LIVE.date, provisional:true, actual_up_count:LIVE.n_limit, up_hits:m.filter(x=>x.status=='상한가').length,
     up_10:m.filter(x=>x.ret>=0.10).length, up_touch:m.filter(x=>x.status=='상한가'||x.status=='도달 후 이탈').length,
     up_mean_ret:m.reduce((a,x)=>a+x.ret,0)/m.length, up_mean_oc:buy.length?buy.reduce((a,x)=>a+x.o_ret,0)/buy.length:null,
+    trade_net_day:(LIVE.trades&&LIVE.trades.net_day!=null)?LIVE.trades.net_day:null, trade_flag:LIVE.trades?LIVE.trades.trade:null,
     up:m.map(x=>({name:x.name,ret:x.ret,hit:x.status=='상한가'}))};
 }
 function renderRec(){
@@ -344,7 +349,7 @@ function renderRec(){
   const hall=(d.history||[]).filter(x=>x.graded);
   const pr=provisionalRow();
   const h=hall.slice(-20).reverse(); if(pr&&!hall.some(x=>x.target_date===pr.target_date)) h.unshift(pr);
-  document.getElementById('h-rec').innerHTML=liveSvg(hall)+(h.length?`<table><tr><th>날짜</th><th>상한가 발생</th><th>상위5 적중</th><th>+10% 이상</th><th>장중 도달</th><th>평균 등락</th><th>시가 매수 수익</th><th>후보 결과</th></tr>${h.map(x=>`<tr><td>${x.target_date.slice(4,6)}.${x.target_date.slice(6)}${x.provisional?'<br><small style="color:var(--mut)">잠정</small>':''}</td><td>${x.actual_up_count}</td><td class="${x.up_hits?'hit':''}">${x.up_hits}</td><td>${x.up_10!=null?x.up_10:'-'}</td><td>${x.up_touch}</td><td class="${cls(x.up_mean_ret)}">${x.up_mean_ret==null?'':sgn(x.up_mean_ret)}</td><td class="${cls(x.up_mean_oc)}">${x.up_mean_oc==null?'':sgn(x.up_mean_oc)}</td><td style="white-space:normal;text-align:left">${x.up.map(u=>`<span class="${u.hit?'hit':''}">${u.name} ${u.ret==null?'':sgn(u.ret)}</span>`).join(' · ')}</td></tr>`).join('')}</table>`:'<div class="ev">채점 기록 없음 · 익영업일 표시</div>');
+  document.getElementById('h-rec').innerHTML=liveSvg(hall)+(h.length?`<table><tr><th>날짜</th><th>상한가 발생</th><th>상위5 적중</th><th>+10% 이상</th><th>장중 도달</th><th>평균 등락</th><th>시가 매수 수익</th><th>진입·청산 순수익</th><th>후보 결과</th></tr>${h.map(x=>`<tr><td>${x.target_date.slice(4,6)}.${x.target_date.slice(6)}${x.provisional?'<br><small style="color:var(--mut)">잠정</small>':''}</td><td>${x.actual_up_count}</td><td class="${x.up_hits?'hit':''}">${x.up_hits}</td><td>${x.up_10!=null?x.up_10:'-'}</td><td>${x.up_touch}</td><td class="${cls(x.up_mean_ret)}">${x.up_mean_ret==null?'':sgn(x.up_mean_ret)}</td><td class="${cls(x.up_mean_oc)}">${x.up_mean_oc==null?'':sgn(x.up_mean_oc)}</td><td class="${cls(x.trade_net_day)}">${x.trade_net_day==null?'-':sgn(x.trade_net_day)}${x.trade_flag===false?'<br><small style="color:var(--mut)">미거래일</small>':''}</td><td style="white-space:normal;text-align:left">${x.up.map(u=>`<span class="${u.hit?'hit':''}">${u.name} ${u.ret==null?'':sgn(u.ret)}</span>`).join(' · ')}</td></tr>`).join('')}</table>`:'<div class="ev">채점 기록 없음 · 익영업일 표시</div>');
 }
 main().catch(e=>{document.getElementById('sub').textContent='데이터 없음';});
 try{const v=localStorage.getItem('view');if(v==='live'){setView('live',document.querySelectorAll('#toptabs button')[1]);}}catch(e){}

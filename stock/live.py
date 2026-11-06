@@ -142,6 +142,46 @@ def fetch_index() -> dict:
     return out
 
 
+TRADE_COST = 0.0053  # 모델 검증과 동일한 왕복 비용 가정(세금 0.20% + 수수료 0.03% + 미끄러짐 0.30%)
+ENTRY = ("0905", "0920")  # 진입 기록 창: 이 구간의 첫 스냅샷 가격
+EXIT = "1515"  # 청산 기록: 이 시각 이후 첫 스냅샷 가격(15:20 종가 단일가 전)
+
+
+def trade_log(day: str, hm: str, morning_rows: list[dict], trade_today) -> dict:
+    """장전 상위 5종목의 09:05 진입가·15:15 청산가를 기록해 실제 체결 기준 손익을 누적한다."""
+    f = LIVE / "trades" / f"{day}.json"
+    log = crypt.read_json(f, None) or {"date": day, "trade": trade_today, "entry_at": None, "exit_at": None, "items": {}}
+    top = [x for x in morning_rows if x.get("morning_rank") and x["morning_rank"] <= 5]
+    if ENTRY[0] <= hm <= ENTRY[1]:
+        for x in top:
+            it = log["items"].get(x["code"])
+            if it and (it.get("entry") or it.get("skip")):
+                continue
+            unb = x["status"] == "상한가" or (x.get("gap") is not None and x["gap"] >= 0.295)
+            log["items"][x["code"]] = {"name": x["name"], "rank": x["morning_rank"], "entry": None if unb else x["price"],
+                                       "entry_at": hm, "skip": "시가 상한가" if unb else None}
+            log["entry_at"] = log["entry_at"] or hm
+    if hm >= EXIT:
+        for x in top:
+            it = log["items"].get(x["code"])
+            if it and it.get("entry") and it.get("exit") is None:
+                it["exit"], it["exit_at"] = x["price"], hm
+                it["net"] = round(x["price"] / it["entry"] - 1 - TRADE_COST, 4)
+                log["exit_at"] = log["exit_at"] or hm
+    for x in top:
+        it = log["items"].get(x["code"])
+        if it and it.get("entry"):
+            it["now"] = round(x["price"] / it["entry"] - 1, 4)
+    entered = [it for it in log["items"].values() if it.get("entry")]
+    done = [it for it in entered if it.get("net") is not None]
+    log["open_day"] = round(sum(it["now"] for it in entered) / len(entered), 4) if entered else None
+    log["net_day"] = round(sum(it["net"] for it in done) / len(done), 4) if done else None
+    log["n_entered"], log["n_skipped"] = len(entered), sum(1 for it in log["items"].values() if it.get("skip"))
+    (LIVE / "trades").mkdir(parents=True, exist_ok=True)
+    crypt.write_json(f, log)
+    return log
+
+
 def main():
     t = now_kst()
     day = t.strftime("%Y%m%d")
@@ -205,8 +245,10 @@ def main():
     at_limit = [x for x in market_rows if x["status"] == "상한가"]
     near = [x for x in market_rows if x["status"] != "상한가" and x["ret"] >= 0.10][:60]
 
+    trades = trade_log(day, hm, morning_rows, latest.get("trade_today"))
     doc = {
         "at": t.strftime("%Y-%m-%d %H:%M"), "date": day, "as_of": latest.get("as_of"), "target_date": latest.get("target_date"),
+        "trades": trades,
         "market": idx, "n_limit": len(at_limit), "n_up10": sum(1 for x in market_rows if x["ret"] >= 0.10),
         "n_total": n_total, "up_ratio": (n_up / n_total) if n_total else None,
         "morning": morning_rows, "limit": at_limit, "near": near,

@@ -146,7 +146,8 @@ def net_policy(oos: pd.DataFrame, k: int = 5, q: float = 0.3, warm: int = 20) ->
     thr = day["score"].expanding().quantile(q).shift(1)
     day["trade"] = (day.index.isin(day.index[:warm])) | (day["score"] >= thr.fillna(-np.inf))
     tr = day[day["trade"]]
-    return {"cost": COST, "k": k, "days": int(len(day)),
+    thr_now = float(day["score"].quantile(q)) if len(day) >= warm else None
+    return {"cost": COST, "k": k, "days": int(len(day)), "q": q, "thr": thr_now,
             "all_day": float(day["net"].mean()), "all_cum": float(day["net"].sum()),
             "all_loss_days": float((day["net"] < 0).mean()), "all_worst": float(day["net"].min()),
             "trade_frac": float(day["trade"].mean()), "trade_day": float(tr["net"].mean()) if len(tr) else None,

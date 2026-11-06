@@ -47,7 +47,11 @@ jobs:
           python -m stock.collect_text
           python -m stock.collect_extra
       - name: 학습·예측
-        run: python -m stock.run ${{ inputs.fast && '--fast' || '' }}
+        run: |
+          # 장중 기록(진입·청산)을 채점에 사용
+          if git fetch -q --depth=1 origin live 2>/dev/null; then mkdir -p stock/data/live_trades; git --work-tree=stock/data/live_trades checkout -q FETCH_HEAD -- trades 2>/dev/null && mv stock/data/live_trades/trades/* stock/data/live_trades/ 2>/dev/null; git reset -q; fi
+          ls stock/data/live_trades 2>/dev/null | tail -3
+          python -m stock.run ${{ inputs.fast && '--fast' || '' }}
       - name: 데이터 브랜치 갱신
         run: |
           cd stock/data
