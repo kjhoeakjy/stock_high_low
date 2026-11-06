@@ -287,7 +287,7 @@ function stats(d){
   const hall=(d.history||[]).filter(x=>x.graded);
   const h=hall.slice(-20).reverse();
   document.getElementById('h-rec').innerHTML=liveSvg(hall)+(h.length?`<table><tr><th>날짜</th><th>실제 상한가</th><th>상위5 적중</th><th>장중 터치</th><th>상위5 평균 등락</th><th>시가→종가</th><th>상한가 후보 결과</th></tr>${h.map(x=>`<tr><td>${x.target_date.slice(4,6)}.${x.target_date.slice(6)}</td><td>${x.actual_up_count}</td><td class="${x.up_hits?'hit':''}">${x.up_hits}</td><td>${x.up_touch}</td><td class="${cls(x.up_mean_ret)}">${x.up_mean_ret==null?'':sgn(x.up_mean_ret)}</td><td class="${cls(x.up_mean_oc)}">${x.up_mean_oc==null?'':sgn(x.up_mean_oc)}</td><td style="white-space:normal;text-align:left">${x.up.map(u=>`<span class="${u.hit?'hit':''}">${u.name} ${u.ret==null?'':sgn(u.ret)}</span>`).join(' · ')}</td></tr>`).join('')}</table>`:'<div class="ev">첫 예측입니다. 다음 거래일부터 실제 결과를 여기서 채점하고, 날짜가 쌓이면 적중률 추이를 그래프로 보여 줍니다.</div>');
-  document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('on'));b.classList.add('on');document.querySelectorAll('.hist').forEach(x=>x.classList.remove('on'));document.getElementById(b.dataset.t).classList.add('on');});
+  document.querySelectorAll('.stats .tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.stats .tabs button').forEach(x=>x.classList.remove('on'));b.classList.add('on');document.querySelectorAll('.hist').forEach(x=>x.classList.remove('on'));document.getElementById(b.dataset.t).classList.add('on');});
 }
 main().catch(e=>{document.getElementById('sub').textContent='아직 데이터가 없습니다. '+e;});
 try{const v=localStorage.getItem('view');if(v==='live'){setView('live',document.querySelectorAll('#toptabs button')[1]);}}catch(e){}
