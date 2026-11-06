@@ -4,15 +4,16 @@ on:
   workflow_dispatch:
     inputs:
       force:
-        description: "장외 시간에도 실행"
+        description: "장외 시간에도 1회 실행"
         type: boolean
         default: false
   push:
     branches: [main]
     paths: [.github/workflows/live.yml]
   schedule:
-    # 평일 09:00~15:40 KST(00:00~06:40 UTC) 5분 간격. 실제 실행은 몇 분 늦을 수 있음.
-    - cron: "*/5 0-6 * * 1-5"
+    # 평일 08:50 KST 시작, 이후 30분마다 재시작(앞 작업 취소). 한 작업이 30초 간격으로 수집·기록을 반복.
+    - cron: "50 23 * * 0-4"
+    - cron: "0,30 0-6 * * 1-5"
 permissions:
   contents: write
 concurrency:
@@ -21,7 +22,7 @@ concurrency:
 jobs:
   live:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -32,16 +33,30 @@ jobs:
           git fetch -q origin live:live || true
           mkdir -p live
           if git rev-parse -q --verify live >/dev/null; then git --work-tree=live checkout -q live -- . || true; git checkout -q main 2>/dev/null || true; fi
-          ls live | head
-      - name: 스냅샷
-        run: python -m stock.live live ${{ inputs.force && '--force' || '' }}
-      - name: live 브랜치 올리기
-        run: |
           cd live
-          if [ ! -f live.json ]; then echo "변경 없음"; exit 0; fi
           git init -q -b live 2>/dev/null || true
           git config user.name github-actions
           git config user.email actions@github.com
-          git add -A
-          git commit -qm "live $(TZ=Asia/Seoul date +%Y-%m-%d_%H:%M)" || exit 0
-          git push -q -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" live
+      - name: 장중 반복 수집(30초 간격)
+        env:
+          FORCE: ${{ inputs.force && '--force' || '' }}
+        run: |
+          push() {
+            cd live
+            git add -A
+            git commit -qm "live $(TZ=Asia/Seoul date +%Y-%m-%d_%H:%M:%S)" >/dev/null 2>&1 || { cd ..; return 0; }
+            git push -q -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" live || true
+            cd ..
+          }
+          start=$(date +%s)
+          while :; do
+            t0=$(date +%s)
+            python -m stock.live live $FORCE; rc=$?
+            [ "$rc" = 3 ] && break
+            push
+            [ -n "$FORCE" ] && break
+            # 한 작업은 최대 4시간 50분(다음 예약 실행이 이어받음)
+            [ $(( $(date +%s) - start )) -gt 17400 ] && break
+            el=$(( $(date +%s) - t0 )); [ $el -lt 30 ] && sleep $(( 30 - el ))
+          done
+          echo "종료 rc=$rc"

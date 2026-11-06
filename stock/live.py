@@ -147,12 +147,12 @@ def main():
     force = "--force" in sys.argv
     latest = json.loads((OUT / "latest.json").read_text()) if (OUT / "latest.json").exists() else {}
     if not force:
-        if t.weekday() >= 5 or hm < "0855" or hm > "1545":
+        if t.weekday() >= 5 or hm < "0850" or hm > "1545":
             print(f"[live] 장외 시간({hm}) → 건너뜀")
-            return
+            sys.exit(3)
         if latest.get("target_date") and latest["target_date"] != day:
             print(f"[live] 오늘({day})은 예측 대상일({latest.get('target_date')})이 아님(휴일?) → 건너뜀")
-            return
+            sys.exit(3)
     scores = {}
     if (OUT / "scores.json").exists():
         for row in json.loads((OUT / "scores.json").read_text()).get("rows", []):

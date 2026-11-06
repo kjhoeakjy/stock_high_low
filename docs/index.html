@@ -124,7 +124,7 @@ const LIVE_URL='https://raw.githubusercontent.com/kjhoeakjy/stock_high_low/live/
 function setView(v,btn){VIEW=v;btn.parentNode.querySelectorAll('button').forEach(x=>x.classList.remove('on'));btn.classList.add('on');
   document.getElementById('view-morning').style.display=v==='morning'?'':'none';document.getElementById('view-live').style.display=v==='live'?'':'none';
   try{localStorage.setItem('view',v)}catch(e){}
-  if(v==='live'){loadLive();if(!LIVE_T)LIVE_T=setInterval(()=>{if(VIEW==='live')loadLive();},60000);}}
+  if(v==='live'){loadLive();if(!LIVE_T)LIVE_T=setInterval(()=>{if(VIEW==='live')loadLive();},20000);}}
 async function loadLive(){
   let d;try{const r=await fetch(LIVE_URL+'?t='+Date.now(),{cache:'no-store'});if(!r.ok)throw new Error(r.status);d=await r.json();}
   catch(e){document.getElementById('livesub').textContent='장중 데이터 없음 · 거래일 09:00 이후 5분 간격 갱신';return;}
