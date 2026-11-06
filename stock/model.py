@@ -110,7 +110,7 @@ def walk_forward(p: Panel, target: str, months: int = 12, rounds: int = ROUNDS) 
         pr = mdl.predict(p.X[ti]).astype("float32")
         o = pd.DataFrame({"code": p.code[ti], "date": p.date[ti], "next_date": p.next_date[ti],
                           target: y[ti], "close": p.close[ti], "p": pr,
-                          "y_gap": p.y_gap[ti], "y_oc": p.y_oc[ti]})
+                          "y_gap": p.y_gap[ti], "y_oc": p.y_oc[ti], "ret1": p.X[ti, p.cols.index("ret1")]})
         outs.append(o)
         print(f"[wf {target}] {m} train={int(tr.sum())} pos={int(y[tr].sum())} test={len(ti)} "
               f"pos={int(y[ti].sum())} ap={average_precision_score(y[ti], pr):.4f} {time.time()-t0:.0f}s", flush=True)
@@ -120,6 +120,9 @@ def walk_forward(p: Panel, target: str, months: int = 12, rounds: int = ROUNDS) 
 
 
 def summarize(oos: pd.DataFrame, target: str) -> dict:
+    # 화면과 동일한 후보 규칙: 전일 상한가 종목 제외(시가 상한가로 매수 불가한 경우가 많음)
+    if "ret1" in oos.columns:
+        oos = oos[oos["ret1"] < 0.295].reset_index(drop=True)
     y, p = oos[target].to_numpy(), oos["p"].to_numpy()
     res = {"n": int(len(y)), "pos": int(y.sum()), "base_rate": float(y.mean()),
            "ap": float(average_precision_score(y, p)), "auc": float(roc_auc_score(y, p)),
