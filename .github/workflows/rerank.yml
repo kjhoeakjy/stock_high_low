@@ -3,6 +3,9 @@ run-name: "2단계 재순위 ${{ inputs.backend || 'gru' }} top=${{ inputs.top |
 on:
   workflow_dispatch:
     inputs:
+      runner:
+        description: "실행 위치: ubuntu-latest(GitHub 서버) | laptop(자체 호스팅 노트북)"
+        default: "ubuntu-latest"
       epochs:
         description: "GRU 에폭"
         default: "4"
@@ -22,7 +25,10 @@ permissions:
   contents: read
 jobs:
   rerank:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner == 'laptop' && fromJSON('["self-hosted","laptop"]') || 'ubuntu-latest' }}
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 180
     env:
       PYTHONUNBUFFERED: "1"

@@ -3,6 +3,9 @@ run-name: "메타 라벨링 실험 top=${{ inputs.top || '20' }}"
 on:
   workflow_dispatch:
     inputs:
+      runner:
+        description: "실행 위치: ubuntu-latest(GitHub 서버) | laptop(자체 호스팅 노트북)"
+        default: "ubuntu-latest"
       top:
         description: "일별 상위 N 후보"
         default: "20"
@@ -10,7 +13,10 @@ permissions:
   contents: read
 jobs:
   meta:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner == 'laptop' && fromJSON('["self-hosted","laptop"]') || 'ubuntu-latest' }}
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 60
     env:
       PYTHONUNBUFFERED: "1"

@@ -4,6 +4,9 @@ run-name: "장기 검증 ${{ inputs.months || '36' }}개월"
 on:
   workflow_dispatch:
     inputs:
+      runner:
+        description: "실행 위치: ubuntu-latest(GitHub 서버) | laptop(자체 호스팅 노트북)"
+        default: "ubuntu-latest"
       months:
         description: "검증 개월 수"
         default: "36"
@@ -20,7 +23,10 @@ concurrency:
 
 jobs:
   backtest:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner == 'laptop' && fromJSON('["self-hosted","laptop"]') || 'ubuntu-latest' }}
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 330
     env:
       PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}

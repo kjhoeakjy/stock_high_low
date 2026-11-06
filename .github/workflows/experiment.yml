@@ -3,6 +3,9 @@ run-name: "모델 실험 ${{ inputs.names }}"
 on:
   workflow_dispatch:
     inputs:
+      runner:
+        description: "실행 위치: ubuntu-latest(GitHub 서버) | laptop(자체 호스팅 노트북)"
+        default: "ubuntu-latest"
       names:
         description: "실험 이름(쉼표 구분, stock/experiment.py CONFIGS)"
         default: "base,rank,buyable,oc10"
@@ -26,7 +29,10 @@ jobs:
           echo "matrix=$(echo "$names" | tr ',' '\n' | sed 's/ //g' | grep . | python3 -c "import sys,json;print(json.dumps([l.strip() for l in sys.stdin]))")" >> $GITHUB_OUTPUT
   run:
     needs: prepare
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner == 'laptop' && fromJSON('["self-hosted","laptop"]') || 'ubuntu-latest' }}
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 120
     strategy:
       fail-fast: false
