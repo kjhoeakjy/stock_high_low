@@ -1,6 +1,6 @@
 """뉴스 본문 수집(LLM 판독용): 1단계 검증 캐시의 일별 상위 후보에 대해 예측일 직전 3일~익일 07:00 기사 본문을 네이버 뉴스에서 받아 저장.
 
-  python -m stock.collect_body [--top=100] [--days=400] [--per=4] [--max=12000] [--workers=6]
+  python -m stock.collect_body [--top=100] [--days=400] [--per=4] [--max=12000] [--workers=6] [--budget=300]
 출력: stock/data/news_body.parquet (id, body)  ※ id = officeId(3)+articleId(10), 본문은 앞 1,500자
 요청 속도: 동시 6건 이하로 제한(24건에서는 61%가 시간 초과). 1회 실행 약 0.7건/초 → 12,000건에 5시간.
 """
@@ -64,13 +64,20 @@ def main(argv):
     print(f"[body] 대상 {len(t)} · 기사 {len(ids)} · 기존 {len(done)} · 이번 {len(todo)}", flush=True)
     if not todo:
         return
+    budget = float(arg("budget", 300)) * 60   # 실행 시간 상한(초). 워크플로 제한 전에 저장하고 끝냄
     t0 = time.time()
-    rows = [r for r in pmap(fetch_one, todo, workers=workers, label="body") if r]
-    new = pd.DataFrame(rows, columns=["id", "body"])
-    out = pd.concat([old, new], ignore_index=True).drop_duplicates("id", keep="last")
-    out.to_parquet(OUT, index=False)
-    ok = (new["body"].str.len() > 50).mean() if len(new) else 0
-    print(f"[body] 완료 {len(new)}건 · 본문 있음 {ok:.2f} · 누적 {len(out)} · {time.time()-t0:.0f}s", flush=True)
+    out, n_new, n_ok = old, 0, 0
+    for k in range(0, len(todo), 500):   # 500건마다 저장: 중단·시간 초과에도 수집분 보존
+        if time.time() - t0 > budget:
+            print(f"[body] 시간 상한 도달 · 남은 {len(todo)-k}건은 다음 실행", flush=True)
+            break
+        rows = [r for r in pmap(fetch_one, todo[k:k + 500], workers=workers, label="body") if r]
+        new = pd.DataFrame(rows, columns=["id", "body"])
+        out = pd.concat([out, new], ignore_index=True).drop_duplicates("id", keep="last")
+        tmp = OUT.with_suffix(".tmp"); out.to_parquet(tmp, index=False); tmp.replace(OUT)
+        n_new += len(new); n_ok += int((new["body"].str.len() > 50).sum())
+        print(f"[body] 저장 {n_new}/{len(todo)} · 본문 있음 {n_ok/max(n_new,1):.2f} · 누적 {len(out)} · {time.time()-t0:.0f}s", flush=True)
+    print(f"[body] 완료 {n_new}건 · 본문 있음 {n_ok/max(n_new,1):.2f} · 누적 {len(out)} · {time.time()-t0:.0f}s", flush=True)
 
 
 if __name__ == "__main__":
