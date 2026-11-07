@@ -2,7 +2,8 @@
 (a) 원시 60일 시퀀스 GRU, (b) 1단계 확률·GRU 점수·교차 단면 변수를 합친 2단계 LightGBM을 월 단위 전진 검증으로 학습하고
 상위 5 선정 성능(적중률·순수익·승률·최악일)을 1단계 단독과 비교한다. CPU torch.
 
-  python -m stock.rerank [--top=200] [--seq=60] [--min_train=6] [--refit=3] [--epochs=4]
+  python -m stock.rerank [--top=200] [--seq=60] [--min_train=6] [--refit=3] [--epochs=4] [--backend=gru|tabpfn|lgb|mlp] [--feats=seq|panel]
+  --feats=panel: 1단계와 같은 258변수를 후보 행에 붙여 모형만 바꿔 비교(공정 비교). 패널 생성에 전체 자료(stock-data) 필요.
 출력: [rerank] {...} JSON 줄
 """
 from __future__ import annotations
@@ -71,15 +72,45 @@ def sequences(c: pd.DataFrame, seq: int) -> np.ndarray:
     return (out - mu) / sd
 
 
+def panel_features(c: pd.DataFrame) -> np.ndarray:
+    """후보 행에 1단계와 같은 특징 행렬(features.build, 258변수)을 붙인다. 공정 비교용: 같은 입력으로 모형만 바꿔 본다."""
+    from stock import features
+    from stock.model import Panel
+    prices, flows, universe, groups, market, disc, news, board = features.load_all()
+    df = features.build(prices, flows, universe, groups, market, disclosures=disc, news=news, board=board)
+    del prices, flows
+    p = Panel(df)
+    del df
+    key = pd.Series(np.arange(len(p.date)), index=pd.MultiIndex.from_arrays([p.code, p.date]))
+    idx = key.reindex(pd.MultiIndex.from_arrays([c["code"].to_numpy(), c["date"].to_numpy()])).to_numpy()
+    ok = ~np.isnan(idx)
+    out = np.full((len(c), p.X.shape[1]), np.nan, "float32")
+    out[ok] = p.X[idx[ok].astype(int)]
+    print(f"[rerank] 패널 변수 {p.X.shape[1]}개 · 후보 매칭 {ok.mean():.3f}", flush=True)
+    return out
+
+
+class _LGB:
+    """같은 후보·같은 변수에 LightGBM(1단계와 비슷한 설정)을 학습: TabPFN과의 모형 비교 기준."""
+    def __init__(self, X, y, seed):
+        X2 = X.reshape(len(X), -1)
+        ds = lgb.Dataset(X2, y, free_raw_data=True)
+        self.m = lgb.train(dict(objective="binary", learning_rate=0.03, num_leaves=63, min_data_in_leaf=200, feature_fraction=0.7,
+                                bagging_fraction=0.8, bagging_freq=1, lambda_l2=10.0, verbose=-1, seed=seed, num_threads=8), ds, num_boost_round=600)
+
+    def predict(self, X):
+        return self.m.predict(X.reshape(len(X), -1)).astype("float32")
+
+
 class _MLP:
     """torch가 없을 때의 대체: 시퀀스를 펼친 sklearn MLP(코드 경로 점검·저사양 환경용)."""
     def __init__(self, X, y, epochs, seed):
         from sklearn.neural_network import MLPClassifier
         self.m = MLPClassifier(hidden_layer_sizes=(128, 64), max_iter=max(20, epochs * 5), random_state=seed, early_stopping=False)
-        self.m.fit(X.reshape(len(X), -1), y)
+        self.m.fit(np.nan_to_num(X.reshape(len(X), -1)), y)
 
     def predict(self, X):
-        return self.m.predict_proba(X.reshape(len(X), -1))[:, 1]
+        return self.m.predict_proba(np.nan_to_num(X.reshape(len(X), -1)))[:, 1]
 
 
 class _TabPFN:
@@ -105,6 +136,8 @@ class _TabPFN:
 
     @staticmethod
     def flat(X):
+        if X.ndim == 2:
+            return X
         parts = []
         for w in (1, 5, 20, 60):
             seg = X[:, -w:, :]
@@ -124,6 +157,12 @@ class _TabPFN:
 def fit_gru(X: np.ndarray, y: np.ndarray, epochs: int, seed: int = 0):
     if BACKEND.get("name") == "tabpfn":
         return _TabPFN(X, y, seed, BACKEND.get("n_ctx", 10000))
+    if BACKEND.get("name") == "lgb":
+        return _LGB(X, y, seed)
+    if BACKEND.get("name") == "mlp":
+        return _MLP(X, y, epochs, seed)
+    if X.ndim == 2:
+        raise SystemExit("[rerank] 패널 변수 입력(--feats=panel)은 backend tabpfn|lgb|mlp만 지원")
     try:
         import torch
     except ImportError:
@@ -169,7 +208,7 @@ BACKEND: dict = {}
 
 
 def predict_gru(net, X: np.ndarray) -> np.ndarray:
-    if isinstance(net, (_MLP, _TabPFN)):
+    if isinstance(net, (_MLP, _TabPFN, _LGB)):
         return net.predict(X)
     import torch
     with torch.no_grad():
@@ -223,13 +262,13 @@ def evaluate(r: pd.DataFrame, score: str, k: int = 5) -> dict:
 def main(argv):
     arg = lambda k, d: next((a.split("=", 1)[1] for a in argv if a.startswith(f"--{k}=")), d)  # noqa: E731
     top, seq, min_train, refit, epochs = int(arg("top", 200)), int(arg("seq", 60)), int(arg("min_train", 6)), int(arg("refit", 3)), int(arg("epochs", 4))
-    BACKEND.update(name=arg("backend", "gru"), n_ctx=int(arg("n_ctx", 10000)))
-    print(f"[rerank] backend={BACKEND['name']}")
+    BACKEND.update(name=arg("backend", "gru"), n_ctx=int(arg("n_ctx", 10000)), feats=arg("feats", "seq"))
+    print(f"[rerank] backend={BACKEND['name']} feats={BACKEND['feats']}")
     c = candidates(top)
     print(f"[rerank] 후보 {len(c)}건 · 일수 {c['date'].nunique()} · 양성 {c['label'].mean():.3f}")
     t0 = time.time()
-    X = sequences(c, seq)
-    print(f"[rerank] 시퀀스 {X.shape} {time.time() - t0:.0f}s")
+    X = panel_features(c) if BACKEND["feats"] == "panel" else sequences(c, seq)
+    print(f"[rerank] 입력 {X.shape} {time.time() - t0:.0f}s")
     r = walk(c, X, min_train, refit, epochs)
     r["rk_p"] = r.groupby("date")["p"].rank(ascending=False)
     r["rk_g"] = r.groupby("date")["gru"].rank(ascending=False)
@@ -240,7 +279,7 @@ def main(argv):
         print("[rerank]", json.dumps(evaluate(sub, sc), ensure_ascii=False))
     for y, g in sub.groupby(sub["date"].str[:4]):
         print(f"[rerank] {y} " + " · ".join(f"{sc}: p@5 {evaluate(g, sc)['p@5']} net {evaluate(g, sc)['net_day']}" for sc in ("p", "avg_rank", "stack")))
-    r[["date", "code", "p", "gru", "stack", "label", "net"]].to_parquet(DATA / f"rerank_oos_{BACKEND['name']}.parquet", index=False)
+    r[["date", "code", "p", "gru", "stack", "label", "net"]].to_parquet(DATA / f"rerank_oos_{BACKEND['name']}_{BACKEND['feats']}.parquet", index=False)
 
 
 if __name__ == "__main__":
