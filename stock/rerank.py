@@ -86,6 +86,7 @@ def panel_features(c: pd.DataFrame) -> np.ndarray:
     ok = ~np.isnan(idx)
     out = np.full((len(c), p.X.shape[1]), np.nan, "float32")
     out[ok] = p.X[idx[ok].astype(int)]
+    out[~np.isfinite(out)] = np.nan   # TabPFN은 무한값 거부 → 결측 처리
     print(f"[rerank] 패널 변수 {p.X.shape[1]}개 · 후보 매칭 {ok.mean():.3f}", flush=True)
     return out
 
