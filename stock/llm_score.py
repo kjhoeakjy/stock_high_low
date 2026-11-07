@@ -95,10 +95,20 @@ def ask(cli, batch: list[tuple[str, str, float, float, list[str]]]) -> list[dict
     prompt = f"다음 {len(batch)}개 종목을 판독하라.\n\n" + "\n\n".join(blocks)
     for i in range(3):
         try:
-            r = cli.messages.create(model=MODEL, max_tokens=3000, system=SYSTEM, messages=[{"role": "user", "content": prompt}])
+            r = cli.messages.create(model=MODEL, max_tokens=8000, system=SYSTEM, messages=[{"role": "user", "content": prompt}])
             text = "".join(getattr(b, "text", "") or "" for b in r.content)
-            m = re.search(r"\[.*\]", text, re.S)
-            arr = json.loads(m.group(0)) if m else []
+            # 배열 전체 파싱 실패(길이 초과 등) 시 객체 단위로 건져 부분 결과라도 사용
+            try:
+                m = re.search(r"\[.*\]", text, re.S)
+                arr = json.loads(m.group(0)) if m else []
+            except json.JSONDecodeError:
+                arr = []
+            if not arr:
+                for obj in re.findall(r"\{[^{}]*\}", text):
+                    try:
+                        arr.append(json.loads(obj))
+                    except json.JSONDecodeError:
+                        continue
             by = {str(a.get("code")).zfill(6): a for a in arr if isinstance(a, dict)}
             out = []
             for date, code, p, ret1, lines in batch:
@@ -117,7 +127,7 @@ def ask(cli, batch: list[tuple[str, str, float, float, list[str]]]) -> list[dict
 
 def main(argv):
     arg = lambda k, d: next((a.split("=", 1)[1] for a in argv if a.startswith(f"--{k}=")), d)  # noqa: E731
-    top, days, bs, workers, max_req = int(arg("top", 100)), int(arg("days", 400)), int(arg("batch", 20)), int(arg("workers", 6)), int(arg("max_req", 3000))
+    top, days, bs, workers, max_req = int(arg("top", 100)), int(arg("days", 400)), int(arg("batch", 10)), int(arg("workers", 6)), int(arg("max_req", 3000))
     body = arg("body", "0") == "1"
     global OUT, TAG
     OUT = DATA / arg("out", "llm_scores_body.parquet" if body else "llm_scores.parquet")
