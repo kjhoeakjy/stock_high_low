@@ -29,6 +29,11 @@ PARAMS = dict(
 ROUNDS = 600
 TRAIN_START = "20200101"
 NEG_KEEP = 0.25  # 음성 다운샘플 비율(가중치로 보정)
+NEG_KEEP_BY = {"y_oc10": 0.5}  # 매매 모델은 음성 절반 유지. 실험(2026-11-07): 6개월 동률, 12개월 +0.28%p, 24개월 +0.14%p, 승률 +1%p
+
+
+def neg_keep(target: str) -> float:
+    return NEG_KEEP_BY.get(target, NEG_KEEP)
 HALF_LIFE = {"y_oc10": 24}  # 표본 가중 반감기(개월). 실험(2026-11-06, 6개월): 24개월 반감기가 최악일·낙폭을 줄임
 N_SEEDS = {"y_up": 3, "y_oc10": 3}  # 운영 모델 시드 앙상블 수. 실험: 3시드 +0.4%p
 WF_SEEDS = {"y_oc10": 3}  # 검증(워크포워드) 시드 수: 매매 모델은 운영과 동일, 표시용 y_up은 1(시간 절약)
@@ -63,10 +68,10 @@ class Panel:
 HARD_NEG = 3.0  # 장중 상한가 도달 후 실패한 음성 가중(실험: 시가 매수 수익 +1.2%p)
 
 
-def _weights(p: Panel, idx: np.ndarray, y: np.ndarray, sampled: bool, half_life: float | None = None) -> np.ndarray:
+def _weights(p: Panel, idx: np.ndarray, y: np.ndarray, sampled: bool, half_life: float | None = None, keep: float = NEG_KEEP) -> np.ndarray:
     w = np.ones(len(idx), dtype="float32")
     if sampled:
-        w = np.where(y == 1, 1.0, 1.0 / NEG_KEEP).astype("float32")
+        w = np.where(y == 1, 1.0, 1.0 / keep).astype("float32")
     hard = (y == 0) & (p.y["y_touch_up"][idx] == 1)
     w = np.where(hard, w * HARD_NEG, w).astype("float32")
     if half_life:  # 지수 감쇠(반감기 개월). 기준일이 달라도 비율은 같아 워크포워드·운영 모두 동일 효과
@@ -79,14 +84,14 @@ def _sample(p: Panel, target: str, mask: np.ndarray, seed: int = 0) -> np.ndarra
     y = p.y[target]
     idx = np.flatnonzero(mask & (y >= 0))
     rng = np.random.default_rng(seed)
-    keep = (y[idx] == 1) | (rng.random(len(idx)) < NEG_KEEP)
+    keep = (y[idx] == 1) | (rng.random(len(idx)) < neg_keep(target))
     return idx[keep]
 
 
 def train_one(p: Panel, target: str, mask: np.ndarray, rounds=ROUNDS, params=PARAMS, seed: int = 0):
     idx = _sample(p, target, mask, seed)
     y = p.y[target][idx]
-    ds = lgb.Dataset(p.X[idx], y, weight=_weights(p, idx, y, True, HALF_LIFE.get(target)), feature_name=p.cols, free_raw_data=True)
+    ds = lgb.Dataset(p.X[idx], y, weight=_weights(p, idx, y, True, HALF_LIFE.get(target), neg_keep(target)), feature_name=p.cols, free_raw_data=True)
     prm = dict(params, seed=params["seed"] + seed)
     return lgb.train(prm, ds, num_boost_round=rounds)
 
@@ -114,7 +119,7 @@ def _wf_key(p: Panel, target: str, rounds: int, n_seeds: int) -> str:
             h.update(fp.read_bytes())
     h.update("|".join(p.cols).encode())
     # 학습 설정. train_one/_weights/_sample 코드를 고치면 WF_CACHE_VERSION을 올릴 것
-    h.update(json.dumps([PARAMS, ROUNDS, NEG_KEEP, HARD_NEG, HALF_LIFE.get(target), target, rounds, n_seeds, TRAIN_START, WF_CACHE_VERSION], sort_keys=True, default=str).encode())
+    h.update(json.dumps([PARAMS, ROUNDS, neg_keep(target), HARD_NEG, HALF_LIFE.get(target), target, rounds, n_seeds, TRAIN_START, WF_CACHE_VERSION], sort_keys=True, default=str).encode())
     return h.hexdigest()
 
 
