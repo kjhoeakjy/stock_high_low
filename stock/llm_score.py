@@ -1,8 +1,9 @@
 """LLM 뉴스·공시 읽기 점수(소급 채점): 1단계 모형 검증 캐시의 일별 상위 후보에 대해, 예측일 t 기준 직전 3일~익일 07:00의
 뉴스·공시 제목을 Claude가 읽고 방향(-3~+3)·사건 분류·신선도·위험 신호를 구조화 점수로 산출한다. 2단계 재순위·메타 라벨링 입력용.
 
-  python -m stock.llm_score [--top=100] [--days=400] [--batch=20] [--workers=6] [--max_req=3000]
+  python -m stock.llm_score [--top=100] [--days=400] [--batch=20] [--workers=6] [--max_req=3000] [--body=1] [--out=파일명]
 출력: stock/data/llm_scores.parquet (date, code, has, dir, strength, event, novelty, risk, note, model)
+  --body=1: collect_body가 받은 기사 본문 앞부분(최근 4건×500자)을 제목 뒤에 붙여 판독, 출력은 llm_scores_body.parquet
 누출 방지: 제목 시각 < next_date 07:00 만 사용(아침 07:20 수집과 동일 기준).
 """
 from __future__ import annotations
@@ -21,6 +22,7 @@ from stock.common import DATA
 
 OUT = DATA / "llm_scores.parquet"
 MODEL = os.environ.get("STOCK_LLM_SCORE_MODEL", "claude-haiku-5-5")
+TAG = MODEL   # 기록용 모델 표시(본문 모드는 +body)
 MIN_VAL = 1e9
 SYSTEM = """당신은 한국 주식시장 뉴스·공시 판독기다. 각 종목의 최근 뉴스·공시 제목만 보고, 다음 거래일 장 시작 직후 매수해 당일 매도할 때의 기대 방향을 판단한다.
 규칙: 제목에 없는 사실을 지어내지 않는다. 출력은 JSON 배열만.
@@ -42,10 +44,21 @@ def targets(top: int, days: int) -> pd.DataFrame:
     return t[["date", "next_date", "code", "p", "ret1"]].reset_index(drop=True)
 
 
-def gather(t: pd.DataFrame) -> dict[tuple[str, str], list[str]]:
-    """(date, code) → 제목 목록. 공시는 전 기간, 뉴스는 수집된 구간만."""
-    news = pd.read_parquet(DATA / "news.parquet", columns=["code", "dt", "title"])
+BODY_CHARS = 500   # 본문 모드: 기사당 앞부분 글자 수
+BODY_PER = 4       # 본문 모드: 대상당 최근 기사 수
+
+
+def gather(t: pd.DataFrame, body: bool = False) -> dict[tuple[str, str], list[str]]:
+    """(date, code) → 제목 목록. 공시는 전 기간, 뉴스는 수집된 구간만. body=True면 news_body.parquet의 본문 앞부분을 최근 기사 BODY_PER건에 붙인다."""
+    news = pd.read_parquet(DATA / "news.parquet", columns=["code", "id", "dt", "title"])
     disc = pd.read_parquet(DATA / "disclosures.parquet", columns=["code", "dt", "title"])
+    bodies = {}
+    if body and (DATA / "news_body.parquet").exists():
+        b = pd.read_parquet(DATA / "news_body.parquet")
+        bodies = dict(zip(b["id"].astype(str), b["body"].fillna("")))
+        print(f"[llm_score] 본문 {len(bodies)}건 사용", flush=True)
+    news["body"] = news["id"].astype(str).map(bodies).fillna("") if bodies else ""
+    disc["body"] = ""
     news["kind"], disc["kind"] = "뉴스", "공시"
     allt = pd.concat([disc, news], ignore_index=True)
     allt = allt[allt["code"].isin(set(t["code"]))]
@@ -67,7 +80,13 @@ def gather(t: pd.DataFrame) -> dict[tuple[str, str], list[str]]:
                 continue
             seen.add(key)
             lines.append(f"- {x.kind} {x.dt[4:8]} {x.dt[8:12]} {x.title[:80]}")
-        out[(r.date, r.code)] = lines[-14:]
+        lines = lines[-14:]
+        if body:
+            # 최근 뉴스 BODY_PER건의 본문 앞부분(제목 뒤에 들여쓰기로)
+            nb = s[(s["kind"] == "뉴스") & (s["body"].str.len() > 50)].tail(BODY_PER)
+            for x in nb.itertuples(index=False):
+                lines.append(f"  · 본문({x.dt[4:8]}): {x.body[:BODY_CHARS].replace(chr(10), ' ')}")
+        out[(r.date, r.code)] = lines
     return out
 
 
@@ -87,7 +106,7 @@ def ask(cli, batch: list[tuple[str, str, float, float, list[str]]]) -> list[dict
                 if a is None:
                     continue
                 out.append({"date": date, "code": code, "has": 1, "dir": max(-3, min(3, int(a.get("dir") or 0))), "event": str(a.get("event") or "기타")[:12],
-                            "novelty": max(0, min(2, int(a.get("novelty") or 0))), "risk": int(bool(a.get("risk"))), "note": str(a.get("note") or "")[:30], "model": MODEL})
+                            "novelty": max(0, min(2, int(a.get("novelty") or 0))), "risk": int(bool(a.get("risk"))), "note": str(a.get("note") or "")[:30], "model": TAG})
             if out:
                 return out
         except Exception as e:  # noqa: BLE001
@@ -99,20 +118,26 @@ def ask(cli, batch: list[tuple[str, str, float, float, list[str]]]) -> list[dict
 def main(argv):
     arg = lambda k, d: next((a.split("=", 1)[1] for a in argv if a.startswith(f"--{k}=")), d)  # noqa: E731
     top, days, bs, workers, max_req = int(arg("top", 100)), int(arg("days", 400)), int(arg("batch", 20)), int(arg("workers", 6)), int(arg("max_req", 3000))
+    body = arg("body", "0") == "1"
+    global OUT, TAG
+    OUT = DATA / arg("out", "llm_scores_body.parquet" if body else "llm_scores.parquet")
+    if body:
+        bs = min(bs, 8)   # 본문 포함 시 요청당 종목 수 축소
+        TAG = MODEL + "+body"
     if not os.environ.get("ANTHROPIC_API_KEY"):
         print("[llm_score] ANTHROPIC_API_KEY 없음")
         return
     t = targets(top, days)
     old = pd.read_parquet(OUT) if OUT.exists() else pd.DataFrame(columns=["date", "code"])
     done = set(zip(old["date"].astype(str), old["code"].astype(str)))
-    titles = gather(t)
+    titles = gather(t, body)
     rows, todo = [], []
     for r in t.itertuples(index=False):
         if (r.date, r.code) in done:
             continue
         lines = titles[(r.date, r.code)]
         if not lines:
-            rows.append({"date": r.date, "code": r.code, "has": 0, "dir": 0, "event": "없음", "novelty": 2, "risk": 0, "note": "", "model": MODEL})
+            rows.append({"date": r.date, "code": r.code, "has": 0, "dir": 0, "event": "없음", "novelty": 2, "risk": 0, "note": "", "model": TAG})
         else:
             todo.append((r.date, r.code, float(r.p), float(r.ret1 or 0), lines))
     print(f"[llm_score] 대상 {len(t)} · 완료 {len(done)} · 제목 없음 {len(rows)} · 판독 대상 {len(todo)} → 요청 {min(max_req, -(-len(todo)//bs))}건")

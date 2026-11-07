@@ -58,9 +58,12 @@ FEATS = ["p", "rank", "p_top1", "p_top5", "p_top20", "p_gap5", "p_rel", "ret1", 
          "m_breadth", "m_ret1", "m_n_p30", "m_n_p50", "m_p_q99", "m_n", "m_breadth5", "m_ret5", "m_breadth20", "m_ret20"]
 
 
+LLM_FILE = "llm_scores.parquet"
+
+
 def add_llm(t: pd.DataFrame) -> pd.DataFrame:
     """LLM 읽기 점수(llm_scores.parquet)가 있으면 병합. 점수 없는 행은 has=0."""
-    f = DATA / "llm_scores.parquet"
+    f = DATA / LLM_FILE
     if not f.exists():
         return t
     s = pd.read_parquet(f)
@@ -123,6 +126,9 @@ def main(argv):
     print(f"[meta] oos rows={len(oos)} days={oos['date'].nunique()} {oos['date'].min()}~{oos['date'].max()}")
     t = build(oos, top)
     if "--llm" in argv:
+        global LLM_FILE
+        LLM_FILE = next((a.split("=", 1)[1] for a in argv if a.startswith("--llm_file=")), LLM_FILE)
+        print(f"[meta] LLM 점수 파일 {LLM_FILE}")
         t = add_llm(t)
         cov = t[t.get("llm_cov", pd.Series(False, index=t.index))]
         if len(cov):
