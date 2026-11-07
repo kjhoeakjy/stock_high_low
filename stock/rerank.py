@@ -279,7 +279,7 @@ def main(argv):
     for sc in ("p", "gru", "avg_rank", "p_x_gru", "stack"):
         print("[rerank]", json.dumps(evaluate(sub, sc), ensure_ascii=False))
     for y, g in sub.groupby(sub["date"].str[:4]):
-        print(f"[rerank] {y} " + " · ".join(f"{sc}: p@5 {evaluate(g, sc)['p@5']} net {evaluate(g, sc)['net_day']}" for sc in ("p", "avg_rank", "stack")))
+        print(f"[rerank] {y} " + " · ".join(f"{sc}: p@5 {evaluate(g, sc)['p@5']} net {evaluate(g, sc)['net_day']} mdd {evaluate(g, sc)['mdd_sum']}" for sc in ("p", "p_x_gru", "stack")))
     r[["date", "code", "p", "gru", "stack", "label", "net"]].to_parquet(DATA / f"rerank_oos_{BACKEND['name']}_{BACKEND['feats']}.parquet", index=False)
 
 
