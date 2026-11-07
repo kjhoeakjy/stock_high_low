@@ -38,7 +38,7 @@ def article_ids(t: pd.DataFrame, per: int) -> list[str]:
 
 def fetch_one(nid: str) -> dict | None:
     url = f"https://n.news.naver.com/mnews/article/{nid[:3]}/{nid[3:]}"
-    txt = http(url, headers={"Referer": "https://n.news.naver.com/"}, retries=2, timeout=15)
+    txt = http(url, headers={"Referer": "https://n.news.naver.com/"}, retries=1, timeout=10)
     if not txt:
         return {"id": nid, "body": ""}
     m = re.search(r'<article[^>]*id="dic_area"[^>]*>(.*?)</article>', txt, re.S)
@@ -54,7 +54,7 @@ def fetch_one(nid: str) -> dict | None:
 
 def main(argv):
     arg = lambda k, d: next((a.split("=", 1)[1] for a in argv if a.startswith(f"--{k}=")), d)  # noqa: E731
-    top, days, per, mx, workers = int(arg("top", 100)), int(arg("days", 400)), int(arg("per", 4)), int(arg("max", 20000)), int(arg("workers", 8))
+    top, days, per, mx, workers = int(arg("top", 100)), int(arg("days", 400)), int(arg("per", 4)), int(arg("max", 20000)), int(arg("workers", 24))
     t = targets(top, days)
     ids = article_ids(t, per)
     old = pd.read_parquet(OUT) if OUT.exists() else pd.DataFrame(columns=["id", "body"])

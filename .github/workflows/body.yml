@@ -15,6 +15,9 @@ on:
       max:
         description: "이번 실행 최대 기사 수"
         default: "20000"
+      workers:
+        description: "동시 요청 수"
+        default: "24"
 permissions:
   contents: write
 concurrency:
@@ -40,7 +43,7 @@ jobs:
           git reset -q
           if git fetch -q --depth=1 origin llm-data 2>/dev/null; then git --work-tree=stock/data checkout -q FETCH_HEAD -- . ; git reset -q; fi
       - name: 본문 수집
-        run: python -m stock.collect_body --top=${{ inputs.top || '100' }} --days=${{ inputs.days || '400' }} --per=${{ inputs.per || '4' }} --max=${{ inputs.max || '20000' }}
+        run: python -m stock.collect_body --top=${{ inputs.top || '100' }} --days=${{ inputs.days || '400' }} --per=${{ inputs.per || '4' }} --max=${{ inputs.max || '20000' }} --workers=${{ inputs.workers || '24' }}
       - name: 저장(llm-data 브랜치)
         run: |
           rm -rf /tmp/ld && mkdir -p /tmp/ld
