@@ -10,13 +10,22 @@ inputs:
 runs:
   using: composite
   steps:
-    - if: runner.os != 'Windows'
+    - if: runner.os != 'Windows' && runner.environment == 'github-hosted'
       uses: actions/setup-python@v5
       with:
         python-version: "3.12"
-    - if: runner.os != 'Windows'
+    - if: runner.os != 'Windows' && runner.environment == 'github-hosted'
       shell: bash
       run: echo "PIPCMD=python -m pip install" >> "$GITHUB_ENV"
+    - if: runner.os == 'Linux' && runner.environment == 'self-hosted'
+      shell: bash
+      run: |
+        # vast.ai 등 GPU 러너: 이미지의 python3(torch+CUDA 포함)을 그대로 사용
+        python3 --version
+        if ! command -v python >/dev/null; then mkdir -p "$RUNNER_TEMP/bin"; ln -sf "$(command -v python3)" "$RUNNER_TEMP/bin/python"; echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"; fi
+        echo "PIPCMD=python3 -m pip install" >> "$GITHUB_ENV"
+        echo "SKIP_TORCH=$(python3 -c 'import torch;print(int(torch.cuda.is_available()))' 2>/dev/null || echo 0)" >> "$GITHUB_ENV"
+        command -v nvidia-smi >/dev/null && nvidia-smi --query-gpu=name,memory.total --format=csv || true
     - if: runner.os == 'Windows'
       shell: powershell
       run: |
@@ -50,5 +59,5 @@ runs:
       run: |
         set -e
         [ -z "${{ inputs.packages }}" ] || $PIPCMD -q ${{ inputs.packages }}
-        [ "${{ inputs.torch }}" != "true" ] || $PIPCMD -q torch --index-url https://download.pytorch.org/whl/cpu
+        [ "${{ inputs.torch }}" != "true" ] || [ "${SKIP_TORCH:-0}" = "1" ] || $PIPCMD -q torch --index-url https://download.pytorch.org/whl/cpu
         python -c "import sys, platform; print(sys.version, platform.machine())"

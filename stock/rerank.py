@@ -86,7 +86,10 @@ class _TabPFN:
     """TabPFN v2(CPU): 시퀀스 요약 통계(각 변수의 최근 1·5·20·60일 평균·표준편차)를 표 입력으로, 컨텍스트는 최근 표본 n_ctx행(양성 전부+음성 표본)."""
     def __init__(self, X, y, seed, n_ctx=10000):
         from tabpfn import TabPFNClassifier
-        self.m = TabPFNClassifier(device="cpu", n_estimators=4, random_state=seed, ignore_pretraining_limits=True)
+        import torch
+        dev = "cuda" if torch.cuda.is_available() else "cpu"
+        print(f"[rerank] TabPFN device={dev}", flush=True)
+        self.m = TabPFNClassifier(device=dev, n_estimators=4, random_state=seed, ignore_pretraining_limits=True)
         F = self.flat(X)
         rng = np.random.default_rng(seed)
         pos = np.flatnonzero(y > 0)

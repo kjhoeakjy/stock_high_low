@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       runner:
-        description: "실행 위치: ubuntu-latest(GitHub 서버) | laptop(자체 호스팅 노트북)"
+        description: "실행 위치: ubuntu-latest(GitHub 서버) | laptop(노트북) | gpu(vast.ai GPU 러너)"
         default: "ubuntu-latest"
       top:
         description: "일별 상위 N 후보"
@@ -13,7 +13,7 @@ permissions:
   contents: read
 jobs:
   meta:
-    runs-on: ${{ inputs.runner == 'laptop' && fromJSON('["self-hosted","laptop"]') || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.runner == 'laptop' && fromJSON('["self-hosted","laptop"]') || inputs.runner == 'gpu' && fromJSON('["self-hosted","gpu"]') || 'ubuntu-latest' }}
     defaults:
       run:
         shell: bash

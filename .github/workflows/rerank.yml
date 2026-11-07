@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       runner:
-        description: "실행 위치: ubuntu-latest(GitHub 서버) | laptop(자체 호스팅 노트북)"
+        description: "실행 위치: ubuntu-latest(GitHub 서버) | laptop(노트북) | gpu(vast.ai GPU 러너)"
         default: "ubuntu-latest"
       epochs:
         description: "GRU 에폭"
@@ -13,7 +13,7 @@ on:
         description: "GRU 재학습 주기(개월)"
         default: "3"
       backend:
-        description: "gru | tabpfn(CPU, 컨텍스트 n_ctx행) | mlp"
+        description: "gru | tabpfn(컨텍스트 n_ctx행, GPU 있으면 자동 사용) | mlp"
         default: "gru"
       n_ctx:
         description: "tabpfn 컨텍스트 행 수"
@@ -25,7 +25,7 @@ permissions:
   contents: read
 jobs:
   rerank:
-    runs-on: ${{ inputs.runner == 'laptop' && fromJSON('["self-hosted","laptop"]') || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.runner == 'laptop' && fromJSON('["self-hosted","laptop"]') || inputs.runner == 'gpu' && fromJSON('["self-hosted","gpu"]') || 'ubuntu-latest' }}
     defaults:
       run:
         shell: bash
