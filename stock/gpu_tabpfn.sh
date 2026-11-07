@@ -1,11 +1,12 @@
 #!/bin/bash
 # vast.ai 주피터 터미널(tmux)에서 TabPFN 2단계 재순위 실험 실행
-# 사용: TABPFN_TOKEN=<토큰> bash gpu-tabpfn.sh [n_ctx=10000] [top=200]
+# 사용: bash gpu_tabpfn.sh [n_ctx=10000] [top=200]   (토큰 있으면 TABPFN_TOKEN=<토큰> 앞에 붙임)
 # 결과: ~/stock_high_low/rerank_tabpfn.log 의 "[rerank] {" 줄 (끝나면 이 파일을 대화에 올리면 됨)
 set -e
 N_CTX=${1:-10000}; TOP=${2:-200}
-[ -n "$TABPFN_TOKEN" ] || { echo "TABPFN_TOKEN 환경변수 필요"; exit 1; }
-export TABPFN_NO_BROWSER=1 PYTHONUNBUFFERED=1
+export PYTHONUNBUFFERED=1
+# 토큰이 없으면 TabPFN이 터미널에 로그인 주소를 출력 → 브라우저에서 로그인 후 받은 토큰을 터미널에 붙여넣으면 저장됨
+[ -n "$TABPFN_TOKEN" ] && export TABPFN_NO_BROWSER=1 || echo "토큰 없음 → 첫 실행 시 터미널 안내에 따라 로그인"
 cd ~
 [ -d stock_high_low ] || git clone -q --depth=1 https://github.com/kjhoeakjy/stock_high_low.git
 cd stock_high_low && git pull -q
