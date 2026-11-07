@@ -1,7 +1,8 @@
 """뉴스 본문 수집(LLM 판독용): 1단계 검증 캐시의 일별 상위 후보에 대해 예측일 직전 3일~익일 07:00 기사 본문을 네이버 뉴스에서 받아 저장.
 
-  python -m stock.collect_body [--top=100] [--days=400] [--per=4] [--max=20000] [--workers=8]
+  python -m stock.collect_body [--top=100] [--days=400] [--per=4] [--max=12000] [--workers=6]
 출력: stock/data/news_body.parquet (id, body)  ※ id = officeId(3)+articleId(10), 본문은 앞 1,500자
+요청 속도: 동시 6건 이하로 제한(24건에서는 61%가 시간 초과). 1회 실행 약 0.7건/초 → 12,000건에 5시간.
 """
 from __future__ import annotations
 
@@ -38,7 +39,7 @@ def article_ids(t: pd.DataFrame, per: int) -> list[str]:
 
 def fetch_one(nid: str) -> dict | None:
     url = f"https://n.news.naver.com/mnews/article/{nid[:3]}/{nid[3:]}"
-    txt = http(url, headers={"Referer": "https://n.news.naver.com/"}, retries=1, timeout=10)
+    txt = http(url, headers={"Referer": "https://n.news.naver.com/"}, retries=2, timeout=15)
     if not txt:
         return {"id": nid, "body": ""}
     m = re.search(r'<article[^>]*id="dic_area"[^>]*>(.*?)</article>', txt, re.S)
@@ -54,11 +55,11 @@ def fetch_one(nid: str) -> dict | None:
 
 def main(argv):
     arg = lambda k, d: next((a.split("=", 1)[1] for a in argv if a.startswith(f"--{k}=")), d)  # noqa: E731
-    top, days, per, mx, workers = int(arg("top", 100)), int(arg("days", 400)), int(arg("per", 4)), int(arg("max", 20000)), int(arg("workers", 24))
+    top, days, per, mx, workers = int(arg("top", 100)), int(arg("days", 400)), int(arg("per", 4)), int(arg("max", 20000)), int(arg("workers", 6))
     t = targets(top, days)
     ids = article_ids(t, per)
     old = pd.read_parquet(OUT) if OUT.exists() else pd.DataFrame(columns=["id", "body"])
-    done = set(old["id"].astype(str))
+    done = set(old.loc[old["body"].str.len() > 50, "id"].astype(str))   # 본문 못 받은 것(시간 초과)은 다음 실행에서 다시 시도
     todo = [i for i in ids if i not in done][:mx]
     print(f"[body] 대상 {len(t)} · 기사 {len(ids)} · 기존 {len(done)} · 이번 {len(todo)}", flush=True)
     if not todo:
