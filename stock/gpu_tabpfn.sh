@@ -11,6 +11,10 @@ cd ~
 [ -d stock_high_low ] || git clone -q --depth=1 https://github.com/kjhoeakjy/stock_high_low.git
 cd stock_high_low && git pull -q
 python3 -m pip install -q pandas pyarrow numpy lightgbm scikit-learn tabpfn
+# 드라이버(CUDA 12.6)에 맞는 torch로 교체(최신 cu13x 휠은 드라이버가 못 받음)
+if ! python3 -c "import torch,sys;sys.exit(0 if torch.cuda.is_available() else 1)" 2>/dev/null; then
+  python3 -m pip install -q "torch<2.10" --index-url https://download.pytorch.org/whl/cu126
+fi
 python3 -c "import torch;print('torch', torch.__version__, 'cuda', torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else '없음')"
 git fetch -q --depth=1 origin stock-data
 mkdir -p stock/data
