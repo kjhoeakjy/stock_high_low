@@ -38,6 +38,7 @@ def targets(top: int, days: int) -> list[tuple[str, str]]:
 def main(argv):
     arg = lambda k, d: next((a.split("=", 1)[1] for a in argv if a.startswith(f"--{k}=")), d)  # noqa: E731
     top, max_calls, days, pause = int(arg("top", 100)), int(arg("max_calls", 20000)), int(arg("days", 365)), float(arg("sleep", 0.12))
+    budget = float(arg("budget", 270)) * 60   # 실행 시간 상한(초). 워크플로 제한 시간 전에 저장하고 끝내기 위함
     now = dt.datetime.utcnow() + dt.timedelta(hours=9)
     if now.weekday() < 5 and "0855" <= now.strftime("%H%M") <= "1550" and "--force" not in argv:
         print("[minute] 장중 실행 금지")
@@ -63,7 +64,12 @@ def main(argv):
         DONE.write_text(json.dumps(done))
 
     for date, code in pairs:
-        if calls >= max_calls:
+        if calls >= max_calls or time.time() - t0 > budget:
+            print(f"[minute] 호출·시간 상한 도달 → 저장 후 종료", flush=True)
+            break
+        hm = (dt.datetime.utcnow() + dt.timedelta(hours=9))
+        if hm.weekday() < 5 and "0855" <= hm.strftime("%H%M") <= "1550" and "--force" not in argv:
+            print("[minute] 장중 진입 → 저장 후 종료(실시간 매매와 API 한도 공유)", flush=True)
             break
         try:
             bars = k.minutes(code, date, "093000")

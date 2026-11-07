@@ -44,6 +44,7 @@ jobs:
       - name: 수집
         run: python -m stock.minute --top=${{ inputs.top || '100' }} --max_calls=${{ inputs.max_calls || '20000' }}
       - name: 저장(minute-data 브랜치, 일일 수집의 stock-data 강제 푸시와 분리)
+        if: always()
         run: |
           rm -rf /tmp/md && mkdir -p /tmp/md && cp stock/data/minute_open.parquet stock/data/minute_done.json /tmp/md/ 2>/dev/null || true
           cd /tmp/md && git init -q -b minute-data && git config user.name github-actions && git config user.email actions@github.com
