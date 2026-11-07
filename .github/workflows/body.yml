@@ -18,7 +18,7 @@ on:
 permissions:
   contents: write
 concurrency:
-  group: stock-llm
+  group: stock-body
   cancel-in-progress: false
 jobs:
   body:
