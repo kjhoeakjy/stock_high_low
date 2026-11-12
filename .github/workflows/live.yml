@@ -69,11 +69,15 @@ jobs:
             curl -fsS -m 10 "https://purge.jsdelivr.net/gh/${{ github.repository }}@live/live.json.enc" >/dev/null 2>&1 || true
             cd ..
           }
+          # 아침 발행이 이 작업 시작보다 늦어도 08:58 재선정 전에 반영되도록 docs를 최신 main으로 갱신
+          refresh() { git fetch -q --depth=1 origin main 2>/dev/null && git checkout -q FETCH_HEAD -- docs 2>/dev/null || true; }
+          refresh
           start=$(date +%s)
           # 비밀번호가 설정되면 live 브랜치의 평문도 암호화, 해제되면 암호문 제거
           if [ -n "$PAGE_PASSWORD" ]; then python -m stock.crypt live/live.json live/snap/*.csv; rm -f live/live.json live/snap/*.csv; else rm -f live/live.json.enc live/snap/*.csv.enc; fi
           while :; do
             t0=$(date +%s)
+            [ "$(TZ=Asia/Seoul date +%H%M)" -lt 0858 ] && refresh
             python -m stock.live live $FORCE; rc=$?
             [ "$rc" = 3 ] && break
             push
