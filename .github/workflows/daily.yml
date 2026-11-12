@@ -1,0 +1,163 @@
+name: 상한가 예측
+run-name: "상한가 예측 ${{ github.event_name == 'schedule' && '자동' || '수동' }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      fast:
+        description: "빠른 시험(3개월 검증)"
+        type: boolean
+        default: false
+      publish:
+        description: "결과를 화면에 발행(끄면 시험 실행: 자료·모형 캐시만 갱신)"
+        type: boolean
+        default: true
+  push:
+    branches: [main]
+    paths: [.github/workflows/daily.yml]
+  schedule:
+    # 평일 아침 07:20 KST (22:20 UTC 전날). 수집·학습 후 08:30 전에 페이지 갱신.
+    # GitHub 예약은 지연·누락이 있어 07:40·08:00 KST 예비 예약 추가. 당일 07:00 이후 발행분이 있으면 예약·push 실행은 건너뜀(check 작업, 수동 실행은 항상 수행).
+    - cron: "20 22 * * 0-4"
+    - cron: "40 22 * * 0-4"
+    - cron: "0 23 * * 0-4"
+    # 전날 23:30 KST 잠정안(아침 실행이 09:00까지 미완료일 때 09:01 매수의 대체 후보)
+    - cron: "30 14 * * 0-4"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stock-daily
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.c.outputs.skip }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
+      - id: c
+        name: 당일 발행 여부 확인
+        run: |
+          last=$(git log -1 --format=%ct -- docs/latest.json.enc docs/latest.json 2>/dev/null || echo 0)
+          today7=$(TZ=Asia/Seoul date -d "$(TZ=Asia/Seoul date +%Y-%m-%d) 07:00" +%s)   # 당일(KST) 07:00
+          # 23:30 잠정안 예약은 다음 거래일 후보 계산이라 당일 아침 발행분과 무관하게 항상 실행(예전에는 아침 발행이 있으면 생략돼 잠정안·모형 캐시가 만들어지지 않았음)
+          if [ "${{ github.event.schedule }}" = "30 14 * * 0-4" ]; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"; echo "[check] 23:30 잠정안 실행"
+          elif [ "${{ github.event_name }}" != "workflow_dispatch" ] && [ "${last:-0}" -ge "$today7" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"; echo "[check] 당일 발행분 있음($(date -u -d @$last +%H:%MZ)) → 예비 실행 생략"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"; echo "[check] 실행"
+          fi
+  predict:
+    needs: check
+    if: needs.check.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 300  # 변수·코드 변경으로 검증 캐시를 전부 다시 계산하는 날(약 2시간+)도 끝까지 저장되도록(평소 20~40분)
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
+      KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
+      KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
+      KIS_ACCOUNT: ${{ secrets.KIS_ACCOUNT }}
+      KIS_MODE: real
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/code
+        with:
+          token: ${{ secrets.CODE_TOKEN }}
+          repo: ${{ vars.CODE_REPO }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q -r stock/requirements.txt anthropic
+      - uses: actions/cache@v4
+        with:
+          path: stock/cache
+          key: stock-cache-${{ github.run_id }}
+          restore-keys: stock-cache-
+      - uses: actions/cache@v4
+        # 최종 모형(전날 밤 학습분) — 비공개 Actions 캐시. 학습 자료가 같으면 아침에 재사용(약 14분 단축), 다르면 재학습
+        with:
+          path: stock/data/final_models
+          key: final-models-${{ github.run_id }}
+          restore-keys: final-models-
+      - name: 수집
+        run: |
+          # 전날 밤 실행이 올린 일봉·수급을 먼저 복원 → 최신이면 collect가 재수집 생략
+          if git fetch -q --depth=1 origin stock-data 2>/dev/null; then for f in prices.parquet flows.parquet; do git --work-tree=stock/data checkout -q FETCH_HEAD -- "$f" 2>/dev/null || true; done; git reset -q; fi
+          python -m stock.collect
+          python -m stock.collect_text
+          python -m stock.collect_extra
+      - name: 증권사 계좌 스냅샷
+        run: |
+          if [ -n "$KIS_APP_KEY" ]; then python -m stock.kis snapshot || echo "[kis] 조회 실패 → 계좌 없이 진행"; fi
+      - name: 토론방 증분 수집
+        run: |
+          if git fetch -q --depth=1 origin board-data 2>/dev/null; then git --work-tree=stock/data checkout -q FETCH_HEAD -- . ; git reset -q; fi
+          python -m stock.collect_board || echo "[board] 수집 실패 → 기존 자료로 진행"
+          if [ -f stock/data/board.parquet ]; then
+            mkdir -p /tmp/bd && cp stock/data/board.parquet stock/data/board_state.json /tmp/bd/
+            (cd /tmp/bd && git init -q -b board-data && git config user.name github-actions && git config user.email actions@github.com && git add -A && git commit -qm "board $(date -u +%Y%m%dT%H%M)" && git push -q -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" board-data) || echo "[board] 브랜치 갱신 실패"
+          fi
+      - name: 학습·예측
+        run: |
+          # 장중 기록(진입·청산)을 채점에 사용
+          if git fetch -q --depth=1 origin live 2>/dev/null; then mkdir -p stock/data/live_trades; git --work-tree=stock/data/live_trades checkout -q FETCH_HEAD -- trades 2>/dev/null && mv stock/data/live_trades/trades/* stock/data/live_trades/ 2>/dev/null; git reset -q; fi
+          ls stock/data/live_trades 2>/dev/null | tail -3
+          # 지난 실행의 검증 결과(완료된 달)를 재사용: 코드·변수가 같으면 이번 달만 새로 계산
+          if git fetch -q --depth=1 origin stock-data 2>/dev/null; then for t in y_up y_oc10 y_lock y_gap y_gapcurve; do git --work-tree=stock/data checkout -q FETCH_HEAD -- "oos_$t.*" 2>/dev/null || true; done; git --work-tree=stock/data checkout -q FETCH_HEAD -- "account_ledger.json*" 2>/dev/null || true; git reset -q; fi
+          # 실제 체결 시뮬레이션용 1분봉(장초 30분·전일) — minute-data 브랜치
+          if git fetch -q --depth=1 origin minute-data 2>/dev/null; then for f in minute_open minute_full; do git --work-tree=stock/data checkout -q FETCH_HEAD -- "$f.parquet*" 2>/dev/null || true; done; git reset -q; fi
+          ls -la stock/data/minute_*.parquet 2>/dev/null || echo "[wf] 분봉 없음"
+          # 시가 갭 재선정 검증 점수: 누적 파일이 아직 없으면 연구 실행 결과(study-data, 암호문)를 시작값으로 받음
+          if ! ls stock/data/oos_y_gap.parquet* >/dev/null 2>&1 && git fetch -q --depth=1 origin study-data 2>/dev/null; then git --work-tree=stock/data checkout -q FETCH_HEAD -- study_gap_oos.parquet.enc 2>/dev/null || true; git reset -q; fi
+          python -m stock.crypt dec "stock/data/*.enc"  # 암호화된 예측 캐시·장부 복원
+          ls -la stock/data/oos_* 2>/dev/null || echo "::warning::[wf] 검증 캐시 없음 → 전체 재계산(2시간 이상)"
+          python -m stock.run ${{ inputs.fast && '--fast' || '' }}
+      - name: 데이터 브랜치 갱신
+        run: |
+          # 공개 브랜치에 계좌 평문 금지: 비밀번호가 있으면 암호문만 남김
+          if [ -n "$PAGE_PASSWORD" ]; then python -m stock.crypt stock/data/account_ledger.json >/dev/null; rm -f stock/data/account_ledger.json; fi
+          # 학습 모형·워크포워드 예측(종목별 점수)은 공개 브랜치에 평문 금지: 예측 캐시는 암호화, 모형 파일은 제외
+          python -m stock.crypt enc "stock/data/oos_y_*.parquet"
+          rm -f stock/data/model_y_*.txt
+          rm -f stock/data/study_gap_oos.parquet stock/data/study_gap_oos.parquet.enc  # 연구 예측은 데이터 브랜치에 복사하지 않음
+          [ -z "$PAGE_PASSWORD" ] || [ ${#PAGE_PASSWORD} -ge 16 ] || echo "::warning::PAGE_PASSWORD가 16자 미만 — 무차별 대입에 취약, 긴 무작위 비밀번호로 교체 권장"
+          cd stock/data
+          rm -f panel.parquet board.parquet board_state.json kis_account.json minute_*
+          rm -f exec_sim.json  # 날짜별 수익 계열은 공개 브랜치에 평문 금지(매 실행 다시 계산)
+          git init -q -b stock-data
+          echo 'final_models/' >> .git/info/exclude  # 최종 모형은 공개 브랜치에 올리지 않음(Actions 캐시에만). 삭제하면 캐시 저장 단계가 경로를 못 찾음
+          git config user.name github-actions
+          git config user.email actions@github.com
+          git add -A
+          git commit -qm "data $(date -u +%Y%m%dT%H%M)"
+          git push -q -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" stock-data
+      - name: 결과 커밋
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.publish }}
+        run: |
+          git config user.name github-actions
+          git config user.email actions@github.com
+          # 생성 결과만 최신 main 위에 얹어 커밋(화면 코드가 그사이 바뀌어도 충돌 없음)
+          # 비밀번호가 설정되어 있으면 남은 평문을 모두 암호화(최초 1회 변환 포함)
+          python -m stock.crypt docs/latest.json docs/scores.json docs/perf.json docs/history/*.json
+          rm -rf /tmp/out && mkdir -p /tmp/out
+          for f in latest.json latest.json.enc scores.json scores.json.enc perf.json perf.json.enc gap_curve.json.enc history; do [ -e "docs/$f" ] && cp -r "docs/$f" /tmp/out/; done
+          git fetch -q origin ${{ github.ref_name }}
+          git reset -q --hard origin/${{ github.ref_name }}
+          # 장중 발행 금지: 당일 07:00(KST) 이후 발행분이 이미 있고 지금이 08:50~15:30(KST)이면 매수에 쓰인 추천안을 바꾸지 않음(2026-11-09 09:17 재발행 사고)
+          last=$(git log -1 --format=%ct -- docs/latest.json.enc docs/latest.json 2>/dev/null || echo 0)
+          today7=$(TZ=Asia/Seoul date -d "$(TZ=Asia/Seoul date +%Y-%m-%d) 07:00" +%s)
+          hm=$(TZ=Asia/Seoul date +%H%M)
+          if [ "${last:-0}" -ge "$today7" ] && [ "$hm" -ge 0850 ] && [ "$hm" -le 1530 ]; then echo "[publish] 장중 재발행 생략(당일 발행분 유지)"; exit 0; fi
+          if [ -n "$PAGE_PASSWORD" ]; then rm -f docs/latest.json docs/scores.json docs/perf.json docs/history/*.json; else rm -f docs/*.json.enc docs/history/*.json.enc; fi
+          cp -r /tmp/out/. docs/
+          git add docs
+          git diff --cached --quiet || git commit -qm "상한가 예측 $(TZ=Asia/Seoul date +%Y-%m-%d)"
+          for i in 1 2 3; do git push -q origin HEAD:${{ github.ref_name }} && break; git pull -q --rebase origin ${{ github.ref_name }}; sleep 5; done

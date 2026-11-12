@@ -1,0 +1,63 @@
+name: Python 준비
+description: GitHub 서버는 setup-python, 자체 호스팅 Windows 노트북은 uv로 Python 3.12 가상환경을 준비(레지스트리 권한 불필요)
+inputs:
+  packages:
+    description: 설치할 패키지(pip 인자 형식, 예 "-r stock/requirements.txt")
+    default: ""
+  torch:
+    description: CPU torch 설치 여부
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - if: runner.os != 'Windows' && runner.environment == 'github-hosted'
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - if: runner.os != 'Windows' && runner.environment == 'github-hosted'
+      shell: bash
+      run: echo "PIPCMD=python -m pip install" >> "$GITHUB_ENV"
+    - if: runner.os == 'Linux' && runner.environment == 'self-hosted'
+      shell: bash
+      run: |
+        # vast.ai 등 GPU 러너: 이미지의 python3(torch+CUDA 포함)을 그대로 사용
+        python3 --version
+        if ! command -v python >/dev/null; then mkdir -p "$RUNNER_TEMP/bin"; ln -sf "$(command -v python3)" "$RUNNER_TEMP/bin/python"; echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"; fi
+        echo "PIPCMD=python3 -m pip install" >> "$GITHUB_ENV"
+        echo "SKIP_TORCH=$(python3 -c 'import torch;print(int(torch.cuda.is_available()))' 2>/dev/null || echo 0)" >> "$GITHUB_ENV"
+        command -v nvidia-smi >/dev/null && nvidia-smi --query-gpu=name,memory.total --format=csv || true
+    - if: runner.os == 'Windows'
+      shell: powershell
+      run: |
+        $ErrorActionPreference = "Stop"
+        # Git Bash를 PATH 앞에(러너 서비스 계정은 WSL bash.exe가 먼저 잡힘)
+        $gitexe = (Get-Command git).Source
+        $gitroot = Split-Path (Split-Path $gitexe)
+        foreach ($d in @("$gitroot\bin", "$gitroot\usr\bin")) { if (Test-Path $d) { Add-Content $env:GITHUB_PATH $d } }
+        $tool = $env:RUNNER_TOOL_CACHE
+        $uv = "$tool\uv"
+        if (!(Test-Path "$uv\uv.exe")) {
+          New-Item -ItemType Directory -Force $uv | Out-Null
+          Invoke-WebRequest -Uri https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip -OutFile "$uv\uv.zip"
+          Expand-Archive "$uv\uv.zip" -DestinationPath $uv -Force
+          Remove-Item "$uv\uv.zip"
+        }
+        $env:UV_PYTHON_INSTALL_DIR = "$tool\uv-python"
+        $env:UV_CACHE_DIR = "$tool\uv-cache"
+        $venv = "$tool\venv312"
+        if (!(Test-Path "$venv\Scripts\python.exe")) { & "$uv\uv.exe" venv $venv --python 3.12; if ($LASTEXITCODE) { exit $LASTEXITCODE } }
+        $py = "$venv\Scripts\python.exe"
+        & $py --version
+        Add-Content $env:GITHUB_ENV "UV_PYTHON_INSTALL_DIR=$($env:UV_PYTHON_INSTALL_DIR)"
+        Add-Content $env:GITHUB_ENV "UV_CACHE_DIR=$($env:UV_CACHE_DIR)"
+        Add-Content $env:GITHUB_ENV "VIRTUAL_ENV=$venv"
+        Add-Content $env:GITHUB_ENV "PYTHONUTF8=1"
+        Add-Content $env:GITHUB_ENV "PYTHONIOENCODING=utf-8"
+        Add-Content $env:GITHUB_ENV "PIPCMD=$uv\uv.exe pip install --python $py"
+        Add-Content $env:GITHUB_PATH "$venv\Scripts"
+    - shell: bash
+      run: |
+        set -e
+        [ -z "${{ inputs.packages }}" ] || $PIPCMD -q ${{ inputs.packages }}
+        [ "${{ inputs.torch }}" != "true" ] || [ "${SKIP_TORCH:-0}" = "1" ] || $PIPCMD -q torch --index-url https://download.pytorch.org/whl/cpu
+        python -c "import sys, platform; print(sys.version, platform.machine())"

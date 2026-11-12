@@ -1,0 +1,69 @@
+name: 2단계 재순위 실험
+run-name: "2단계 재순위 ${{ inputs.backend || 'gru' }} ${{ inputs.feats || 'seq' }} top=${{ inputs.top || '200' }} seed_off=${{ inputs.seed_off || '0' }}"
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: "실행 위치: ubuntu-latest(GitHub 서버) | laptop(노트북) | gpu(vast.ai GPU 러너)"
+        default: "ubuntu-latest"
+      epochs:
+        description: "GRU 에폭"
+        default: "4"
+      refit:
+        description: "GRU 재학습 주기(개월)"
+        default: "3"
+      backend:
+        description: "gru | tabpfn(컨텍스트 n_ctx행, GPU 있으면 자동 사용) | lgb(2단계 LightGBM) | mlp"
+        default: "gru"
+      n_ctx:
+        description: "tabpfn 컨텍스트 행 수"
+        default: "10000"
+      top:
+        description: "일별 상위 N 후보"
+        default: "200"
+      feats:
+        description: "입력: seq(60일 시계열) | panel(1단계와 같은 258변수, 전체 자료 필요)"
+        default: "seq"
+      seed_off:
+        description: "시드 오프셋(같은 설정을 다른 시드로 반복해 평균할 때)"
+        default: "0"
+permissions:
+  contents: read
+jobs:
+  rerank:
+    runs-on: ${{ (inputs.runner == 'ubuntu-latest' || inputs.runner == '') && 'ubuntu-latest' || fromJSON(format('["self-hosted","{0}"]', inputs.runner)) }}
+    defaults:
+      run:
+        shell: bash
+    timeout-minutes: 355
+    env:
+      PYTHONUNBUFFERED: "1"
+      TABPFN_TOKEN: ${{ secrets.TABPFN_TOKEN }}
+      TABPFN_NO_BROWSER: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/code
+        with:
+          token: ${{ secrets.CODE_TOKEN }}
+          repo: ${{ vars.CODE_REPO }}
+      - uses: ./.github/actions/python
+        with:
+          packages: "pandas pyarrow numpy lightgbm scikit-learn"
+          torch: "true"
+      - if: ${{ inputs.backend == 'tabpfn' }}
+        run: $PIPCMD -q tabpfn
+      - name: 자료 받기
+        run: |
+          git fetch -q --depth=1 origin stock-data
+          mkdir -p stock/data
+          if [ "${{ inputs.feats || 'seq' }}" = panel ]; then git --work-tree=stock/data checkout -q FETCH_HEAD -- . ; else git --work-tree=stock/data checkout -q FETCH_HEAD -- 'oos_y_oc10.parquet*' prices.parquet; fi
+          git reset -q
+      - name: 자료 복호화(stock-data의 암호화 파일)
+        env:
+          PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
+        run: pip install -q cryptography >/dev/null 2>&1 || true; python -m stock.crypt dec "stock/data/*.enc"
+      - run: python -m stock.rerank --top=${{ inputs.top || '200' }} --epochs=${{ inputs.epochs || '4' }} --refit=${{ inputs.refit || '3' }} --backend=${{ inputs.backend || 'gru' }} --n_ctx=${{ inputs.n_ctx || '10000' }} --feats=${{ inputs.feats || 'seq' }} --seed_off=${{ inputs.seed_off || '0' }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rerank_oos_${{ inputs.backend || 'gru' }}_s${{ inputs.seed_off || '0' }}
+          path: stock/data/rerank_oos_*.parquet

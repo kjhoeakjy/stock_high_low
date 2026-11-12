@@ -1,0 +1,70 @@
+name: 모델 실험
+run-name: "모델 실험 ${{ inputs.names }}"
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: "실행 위치: ubuntu-latest(GitHub 서버) | laptop(노트북) | gpu(vast.ai GPU 러너)"
+        default: "ubuntu-latest"
+      names:
+        description: "실험 이름(쉼표 구분, stock/experiment.py CONFIGS)"
+        default: "base,rank,buyable,oc10"
+      months:
+        description: "검증 개월 수"
+        default: "6"
+      threads:
+        description: "LightGBM 스레드 수(0=전체 코어, 노트북 러너 2개 동시 실행 시 8)"
+        default: "0"
+permissions:
+  contents: read
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+    steps:
+      - id: m
+        run: |
+          names="${{ inputs.names || 'base' }}"
+          echo "matrix=$(echo "$names" | tr ',' '\n' | sed 's/ //g' | grep . | python3 -c "import sys,json;print(json.dumps([l.strip() for l in sys.stdin]))")" >> $GITHUB_OUTPUT
+  run:
+    needs: prepare
+    runs-on: ${{ (inputs.runner == 'ubuntu-latest' || inputs.runner == '') && 'ubuntu-latest' || fromJSON(format('["self-hosted","{0}"]', inputs.runner)) }}
+    defaults:
+      run:
+        shell: bash
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix:
+        name: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    env:
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/code
+        with:
+          token: ${{ secrets.CODE_TOKEN }}
+          repo: ${{ vars.CODE_REPO }}
+      - uses: ./.github/actions/python
+        with:
+          packages: "-r stock/requirements.txt"
+      - name: 데이터 받기
+        run: |
+          git fetch -q --depth=1 origin stock-data
+          mkdir -p stock/data
+          git --work-tree=stock/data checkout -q FETCH_HEAD -- .
+          git reset -q
+          # 실제 체결 재현(ex_* 지표)용 1분봉
+          if git fetch -q --depth=1 origin minute-data 2>/dev/null; then for f in minute_open minute_full; do git --work-tree=stock/data checkout -q FETCH_HEAD -- "$f.parquet*" 2>/dev/null || true; done; git reset -q; fi
+          ls -la stock/data | head
+      - name: 자료 복호화(stock-data의 암호화 파일)
+        env:
+          PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
+        run: pip install -q cryptography >/dev/null 2>&1 || true; python -m stock.crypt dec "stock/data/*.enc"
+      - name: 실험
+        env:
+          EXP_CKPT_DIR: ${{ runner.tool_cache }}/exp_ckpt
+          LGBM_THREADS: ${{ inputs.threads || '0' }}
+        run: python -m stock.experiment ${{ matrix.name }} --months=${{ inputs.months || '6' }}

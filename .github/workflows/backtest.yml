@@ -1,0 +1,83 @@
+name: 장기 검증
+run-name: "장기 검증 ${{ inputs.months || '36' }}개월"
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: "실행 위치: ubuntu-latest(GitHub 서버) | laptop(노트북) | gpu(vast.ai GPU 러너)"
+        default: "ubuntu-latest"
+      months:
+        description: "검증 개월 수"
+        default: "36"
+  # 주간 예약(토 09:00 36개월)은 사용자 지시로 중단(2026-11-10). 수동 실행만 가능
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stock-backtest
+  cancel-in-progress: true
+
+jobs:
+  backtest:
+    runs-on: ${{ (inputs.runner == 'ubuntu-latest' || inputs.runner == '') && 'ubuntu-latest' || fromJSON(format('["self-hosted","{0}"]', inputs.runner)) }}
+    defaults:
+      run:
+        shell: bash
+    timeout-minutes: 330
+    env:
+      PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/code
+        with:
+          token: ${{ secrets.CODE_TOKEN }}
+          repo: ${{ vars.CODE_REPO }}
+      - uses: ./.github/actions/python
+        with:
+          packages: "-r stock/requirements.txt"
+      - name: 데이터 받기
+        run: |
+          git fetch -q --depth=1 origin stock-data
+          mkdir -p stock/data
+          git --work-tree=stock/data checkout -q FETCH_HEAD -- .
+          git reset -q
+          if git fetch -q --depth=1 origin board-data 2>/dev/null; then git --work-tree=stock/data checkout -q FETCH_HEAD -- . ; git reset -q; fi
+          if git fetch -q --depth=1 origin minute-data 2>/dev/null; then for f in minute_open minute_full; do git --work-tree=stock/data checkout -q FETCH_HEAD -- "$f.parquet*" 2>/dev/null || true; done; git reset -q; fi
+          ls stock/data | head -30
+      - name: 자료 복호화(stock-data의 암호화 파일)
+        env:
+          PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
+        run: pip install -q cryptography >/dev/null 2>&1 || true; python -m stock.crypt dec "stock/data/*.enc"
+      - name: 검증
+        run: python -m stock.backtest --months=${{ inputs.months || '36' }}
+      - name: 검증 캐시 저장(stock-data)
+        env:
+          PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
+        run: |
+          rm -rf /tmp/sd && mkdir -p /tmp/sd && cd /tmp/sd && git init -q -b stock-data
+          git config user.name github-actions && git config user.email actions@github.com
+          for i in 1 2 3; do
+            git fetch -q --depth=1 "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" stock-data && git reset -q --hard FETCH_HEAD
+            rm -f "$GITHUB_WORKSPACE"/stock/data/oos_y_oc10.parquet.enc && (cd "$GITHUB_WORKSPACE" && python -m stock.crypt enc stock/data/oos_y_oc10.parquet)
+            rm -f oos_y_oc10.parquet model_y_*.txt; cp "$GITHUB_WORKSPACE"/stock/data/oos_y_oc10.parquet* "$GITHUB_WORKSPACE"/stock/data/oos_y_oc10.key . && git add -A
+            git diff --cached --quiet && break
+            git commit -qm "oos cache $(date -u +%Y%m%dT%H%M)" && git push -q "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" HEAD:stock-data && break
+            sleep 10
+          done
+      - name: 결과 커밋
+        run: |
+          git config user.name github-actions
+          git config user.email actions@github.com
+          python -m stock.crypt docs/backtest.json
+          rm -rf /tmp/out && mkdir -p /tmp/out
+          for f in backtest.json backtest.json.enc; do [ -e "docs/$f" ] && cp "docs/$f" /tmp/out/; done
+          git fetch -q origin ${{ github.ref_name }}
+          git reset -q --hard origin/${{ github.ref_name }}
+          rm -f docs/backtest.json docs/backtest.json.enc
+          cp /tmp/out/. docs/ -r
+          git add docs
+          git diff --cached --quiet || git commit -qm "장기 검증 $(TZ=Asia/Seoul date +%Y-%m-%d)"
+          for i in 1 2 3; do git push -q origin HEAD:${{ github.ref_name }} && break; git pull -q --rebase origin ${{ github.ref_name }}; sleep 5; done

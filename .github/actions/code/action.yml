@@ -1,0 +1,24 @@
+name: 코드 준비
+description: 비공개 코드 저장소가 설정되어 있으면 stock/ 폴더를 그 내용으로 교체한다. 설정이 없으면 아무것도 하지 않는다.
+inputs:
+  token:
+    description: 코드 저장소 읽기 토큰
+    required: false
+    default: ""
+  repo:
+    description: 코드 저장소(owner/name)
+    required: false
+    default: ""
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        TOK: ${{ inputs.token }}
+        REPO: ${{ inputs.repo }}
+      run: |
+        if [ -z "$TOK" ] || [ -z "$REPO" ]; then echo "저장소 내 코드 사용"; exit 0; fi
+        rm -rf "$RUNNER_TEMP/_code"
+        git clone -q --depth=1 "https://x-access-token:${TOK}@github.com/${REPO}" "$RUNNER_TEMP/_code" 2>/dev/null || { echo "::error::코드 받기 실패"; exit 1; }
+        rm -rf stock && cp -r "$RUNNER_TEMP/_code/stock" stock && rm -rf "$RUNNER_TEMP/_code"
+        echo "코드 준비 완료"

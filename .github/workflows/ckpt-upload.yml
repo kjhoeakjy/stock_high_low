@@ -1,0 +1,39 @@
+name: 실험 체크포인트 업로드
+run-name: "체크포인트 업로드 ${{ inputs.runner }}"
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: "laptop | gpu"
+        default: "laptop"
+      pattern:
+        description: "올릴 체크포인트 폴더 이름 패턴(glob)"
+        default: "*_36_*"
+permissions:
+  contents: write
+jobs:
+  upload:
+    runs-on: ${{ inputs.runner == 'gpu' && fromJSON('["self-hosted","gpu"]') || fromJSON('["self-hosted","laptop"]') }}
+    defaults:
+      run:
+        shell: bash
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/code
+        with:
+          token: ${{ secrets.CODE_TOKEN }}
+          repo: ${{ vars.CODE_REPO }}
+      - name: 체크포인트 묶기
+        run: |
+          src="${RUNNER_TOOL_CACHE}/exp_ckpt"
+          ls -la "$src" || { echo "체크포인트 없음"; exit 0; }
+          rm -rf /tmp/ck && mkdir -p /tmp/ck/exp_ckpt
+          for d in "$src"/${{ inputs.pattern || '*_36_*' }}; do [ -d "$d" ] && cp -r "$d" /tmp/ck/exp_ckpt/; done
+          find /tmp/ck -name '*.parquet' | wc -l
+      - name: 저장(exp-ckpt 브랜치)
+        run: |
+          cd /tmp/ck && git init -q -b exp-ckpt && git config user.name github-actions && git config user.email actions@github.com
+          git pull -q "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" exp-ckpt 2>/dev/null || true
+          git add -A && git commit -qm "ckpt $(hostname) $(date -u +%Y%m%dT%H%M)" || echo "변경 없음"
+          git push -q "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" exp-ckpt

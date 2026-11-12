@@ -1,0 +1,42 @@
+name: 연구 자료 평문 정리
+# study-data 브랜치의 예측·날짜별 계열 평문을 암호문으로 바꾸고 이력을 한 커밋으로 줄인다(과거 평문 제거). 수동 실행.
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: stock-secure
+jobs:
+  secure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/code
+        with:
+          token: ${{ secrets.CODE_TOKEN }}
+          repo: ${{ vars.CODE_REPO }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q cryptography
+      - name: 암호화 후 단일 커밋으로 교체
+        run: |
+          set -e
+          test -n "$PAGE_PASSWORD" || { echo "PAGE_PASSWORD 없음"; exit 1; }
+          url="https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}"
+          git clone -q --depth=1 --branch study-data "$url" /tmp/sd
+          before=$(git -C /tmp/sd rev-parse HEAD)
+          python -m stock.crypt enc "/tmp/sd/*.parquet"
+          for f in study_day_signal_result study_exit_result study_gap_exec_prod100_result study_open_signal_result; do
+            python -m stock.crypt enc "/tmp/sd/$f.json"
+          done
+          cd /tmp/sd
+          echo "평문 parquet $(ls *.parquet 2>/dev/null | wc -l)개 · 암호문 $(ls *.enc | wc -l)개"
+          rm -rf .git && git init -q -b study-data
+          git config user.name github-actions; git config user.email actions@github.com
+          git add -A && git commit -qm "study-data 정리"
+          # 그 사이 다른 작업이 올린 것이 있으면 덮어쓰지 않고 실패
+          git push -q --force-with-lease=study-data:$before "$url" study-data

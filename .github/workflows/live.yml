@@ -1,0 +1,85 @@
+name: 장중 실시간
+run-name: "장중 실시간 ${{ github.event_name == 'schedule' && '자동' || '수동' }}"
+on:
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "장외 시간에도 1회 실행"
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths: [.github/workflows/live.yml]
+  schedule:
+    # 평일 08:50 KST 시작, 이후 :25/:55에 재시작(앞 작업 취소). 09:00 이월 청산·09:01 매수 창(~09:20)과 15:15 청산 직후를 피한 시각.
+    # 개장 지연일(수능)은 16:45까지 필요하므로 UTC 7시대까지 포함(평일에는 장외로 즉시 종료).
+    # 08:40·08:45·08:50 KST 3회 예약(GitHub 예약 지연 대비). 새 실행이 이전 실행을 이어받음(상태는 live 브랜치)
+    - cron: "40 23 * * 0-4"
+    - cron: "45 23 * * 0-4"
+    - cron: "50 23 * * 0-4"
+    - cron: "25,55 0-7 * * 1-5"
+permissions:
+  contents: write
+concurrency:
+  group: stock-live
+  cancel-in-progress: true
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/code
+        with:
+          token: ${{ secrets.CODE_TOKEN }}
+          repo: ${{ vars.CODE_REPO }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q cryptography numpy pandas
+      - name: live 브랜치 받기
+        run: |
+          git fetch -q origin live:live || true
+          mkdir -p live
+          if git rev-parse -q --verify live >/dev/null; then git --work-tree=live checkout -q live -- . || true; git checkout -q main 2>/dev/null || true; fi
+          cd live
+          git init -q -b live 2>/dev/null || true
+          git config user.name github-actions
+          git config user.email actions@github.com
+      - name: 장중 반복 수집(30초 간격)
+        env:
+          FORCE: ${{ inputs.force && '--force' || '' }}
+          PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
+          KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
+          KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
+          KIS_ACCOUNT: ${{ secrets.KIS_ACCOUNT }}
+          KIS_MODE: real
+          TRADE_MODE: ${{ vars.TRADE_MODE }}
+        run: |
+          push() {
+            cd live
+            # 시각 슬롯 파일(10초 단위 이름): raw.githubusercontent.com 5분 캐시를 피하려고 매번 새 주소로 기록. 화면은 지난 슬롯만 조회(미래 주소 404 캐시 방지). 최근 12개만 유지
+            k=$(( $(date +%s) / 10 )); mkdir -p t
+            if [ -f live.json.enc ]; then cp live.json.enc "t/$k.json.enc"; elif [ -f live.json ]; then cp live.json "t/$k.json"; fi
+            ls t | sort -n | head -n -12 | sed 's#^#t/#' | xargs -r rm -f
+            git add -A
+            git commit -qm "live $(TZ=Asia/Seoul date +%Y-%m-%d_%H:%M:%S)" >/dev/null 2>&1 || { cd ..; return 0; }
+            git push -q -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" live || true
+            # raw.githubusercontent.com은 5분 캐시(쿼리 무시) → 화면은 jsDelivr 경로를 함께 조회, 푸시 직후 캐시 삭제
+            curl -fsS -m 10 "https://purge.jsdelivr.net/gh/${{ github.repository }}@live/live.json.enc" >/dev/null 2>&1 || true
+            cd ..
+          }
+          start=$(date +%s)
+          # 비밀번호가 설정되면 live 브랜치의 평문도 암호화, 해제되면 암호문 제거
+          if [ -n "$PAGE_PASSWORD" ]; then python -m stock.crypt live/live.json live/snap/*.csv; rm -f live/live.json live/snap/*.csv; else rm -f live/live.json.enc live/snap/*.csv.enc; fi
+          while :; do
+            t0=$(date +%s)
+            python -m stock.live live $FORCE; rc=$?
+            [ "$rc" = 3 ] && break
+            push
+            [ -n "$FORCE" ] && break
+            # 한 작업은 최대 4시간 50분(다음 예약 실행이 이어받음)
+            [ $(( $(date +%s) - start )) -gt 17400 ] && break
+            el=$(( $(date +%s) - t0 )); [ $el -lt 30 ] && sleep $(( 30 - el ))
+          done
+          echo "종료 rc=$rc"

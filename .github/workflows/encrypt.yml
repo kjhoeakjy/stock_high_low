@@ -1,0 +1,35 @@
+name: 발행 데이터 암호화
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: stock-encrypt
+jobs:
+  encrypt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/code
+        with:
+          token: ${{ secrets.CODE_TOKEN }}
+          repo: ${{ vars.CODE_REPO }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q cryptography
+      - name: 평문을 .enc로 변환하고 평문 삭제
+        run: |
+          test -n "$PAGE_PASSWORD" || { echo "PAGE_PASSWORD 없음"; exit 1; }
+          [ ${#PAGE_PASSWORD} -ge 16 ] || echo "::warning::PAGE_PASSWORD가 16자 미만 — 무차별 대입에 취약, 긴 무작위 비밀번호로 교체 권장"
+          python -m stock.crypt docs/latest.json docs/scores.json docs/perf.json docs/history/*.json
+          rm -rf docs/docs
+          python -m stock.webpub
+          git config user.name github-actions
+          git config user.email actions@github.com
+          git add -A docs
+          git diff --cached --quiet || git commit -qm "발행 데이터 암호화"
+          for i in 1 2 3; do git push -q origin HEAD:main && break; git pull -q --rebase origin main; sleep 5; done

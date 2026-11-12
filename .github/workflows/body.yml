@@ -1,0 +1,64 @@
+name: 뉴스 본문 수집
+run-name: "뉴스 본문 수집 top=${{ inputs.top || '100' }} max=${{ inputs.max || '20000' }}"
+on:
+  workflow_dispatch:
+    inputs:
+      top:
+        description: "일별 상위 N 후보"
+        default: "100"
+      days:
+        description: "소급 일수"
+        default: "400"
+      per:
+        description: "대상당 최근 기사 수"
+        default: "4"
+      max:
+        description: "이번 실행 최대 기사 수"
+        default: "12000"
+      workers:
+        description: "동시 요청 수(6 이하 권장)"
+        default: "6"
+      budget:
+        description: "수집 시간 상한(분)"
+        default: "300"
+permissions:
+  contents: write
+concurrency:
+  group: stock-body
+  cancel-in-progress: false
+jobs:
+  body:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    env:
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/code
+        with:
+          token: ${{ secrets.CODE_TOKEN }}
+          repo: ${{ vars.CODE_REPO }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q pandas pyarrow numpy
+      - name: 자료 받기
+        run: |
+          git fetch -q --depth=1 origin stock-data
+          mkdir -p stock/data
+          git --work-tree=stock/data checkout -q FETCH_HEAD -- 'oos_y_oc10.parquet*' news.parquet
+          git reset -q
+          if git fetch -q --depth=1 origin llm-data 2>/dev/null; then git --work-tree=stock/data checkout -q FETCH_HEAD -- . ; git reset -q; fi
+      - name: 자료 복호화(stock-data의 암호화 파일)
+        env:
+          PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
+        run: pip install -q cryptography >/dev/null 2>&1 || true; python -m stock.crypt dec "stock/data/*.enc"
+      - name: 본문 수집
+        run: python -m stock.collect_body --top=${{ inputs.top || '100' }} --days=${{ inputs.days || '400' }} --per=${{ inputs.per || '4' }} --max=${{ inputs.max || '12000' }} --workers=${{ inputs.workers || '6' }} --budget=${{ inputs.budget || '300' }}
+      - name: 저장(llm-data 브랜치)
+        if: always()
+        run: |
+          rm -rf /tmp/ld && mkdir -p /tmp/ld
+          for f in llm_scores.parquet llm_scores_body.parquet news_body.parquet; do [ -f stock/data/$f ] && cp stock/data/$f /tmp/ld/; done
+          cd /tmp/ld && git init -q -b llm-data && git config user.name github-actions && git config user.email actions@github.com
+          git add -A && git commit -qm "body $(date -u +%Y%m%dT%H%M)" && git push -q -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" llm-data || echo "변경 없음"

@@ -1,0 +1,80 @@
+name: 연구 실행
+run-name: "연구 ${{ inputs.module }} ${{ inputs.args }}"
+on:
+  workflow_dispatch:
+    inputs:
+      module:
+        description: "실행할 모듈(예: stock.exec_study)"
+        required: true
+      args:
+        description: "인자"
+        default: ""
+      runner:
+        description: "ubuntu-latest | laptop | gpu"
+        default: "ubuntu-latest"
+      packages:
+        description: "추가 패키지"
+        default: ""
+      torch:
+        description: "CPU torch 설치"
+        type: boolean
+        default: false
+      data:
+        description: "받을 자료 브랜치(쉼표): stock-data,minute-data,llm-data,board-data"
+        default: "stock-data,minute-data"
+permissions:
+  contents: write
+jobs:
+  study:
+    runs-on: ${{ (inputs.runner == 'ubuntu-latest' || inputs.runner == '') && 'ubuntu-latest' || fromJSON(format('["self-hosted","{0}"]', inputs.runner)) }}
+    defaults:
+      run:
+        shell: bash
+    timeout-minutes: 350
+    env:
+      PYTHONUNBUFFERED: "1"
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/code
+        with:
+          token: ${{ secrets.CODE_TOKEN }}
+          repo: ${{ vars.CODE_REPO }}
+      - uses: ./.github/actions/python
+        with:
+          packages: "-r stock/requirements.txt ${{ inputs.packages }}"
+          torch: "${{ inputs.torch && 'true' || 'false' }}"
+      - name: 자료 받기
+        run: |
+          mkdir -p stock/data
+          for b in $(echo "${{ inputs.data || 'stock-data,minute-data' }}" | tr ',' ' '); do
+            git fetch -q --depth=1 origin $b && git --work-tree=stock/data checkout -q FETCH_HEAD -- . && git reset -q || echo "브랜치 없음 $b"
+          done
+          ls -la stock/data | head -40
+      - name: 자료 복호화(stock-data의 암호화 파일)
+        env:
+          PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
+        run: python -m stock.crypt dec "stock/data/*.enc" || echo "복호화 생략"; touch /tmp/dec_marker
+      - name: 실행(예측 파일을 쓰는 모듈은 같은 비밀번호로 암호화해 저장)
+        env:
+          PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
+        run: python -m ${{ inputs.module }} ${{ inputs.args }}
+      - name: 결과 저장(study-data 브랜치, stock/data/study_* 파일)
+        if: always()
+        env:
+          PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
+        run: |
+          ls stock/data/study_* >/dev/null 2>&1 || { echo "저장할 결과 없음"; exit 0; }
+          # 공개 브랜치에 평문 예측 금지: 복호화해 쓴 사본은 지우고(이번 실행이 다시 만든 것은 다시 암호화), parquet은 전부 암호문으로
+          for e in stock/data/study_*.enc; do
+            [ -e "$e" ] || continue; p="${e%.enc}"; [ -e "$p" ] || continue
+            if [ -e /tmp/dec_marker ] && [ "$p" -nt /tmp/dec_marker ]; then rm -f "$e"; python -m stock.crypt enc "$p" >/dev/null; else rm -f "$p"; fi
+          done
+          python -m stock.crypt enc "stock/data/study_*.parquet" >/dev/null || true
+          ls stock/data/study_*.parquet >/dev/null 2>&1 && { echo "::error::평문 예측 파일이 남아 저장 중단"; exit 1; }
+          rm -rf /tmp/sd && mkdir -p /tmp/sd && cd /tmp/sd && git init -q -b study-data
+          git config user.name github-actions && git config user.email actions@github.com
+          git pull -q "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" study-data 2>/dev/null || true
+          cp $GITHUB_WORKSPACE/stock/data/study_* . && git add -A && git commit -qm "study ${{ inputs.module }} $(date -u +%Y%m%dT%H%M)" || echo "변경 없음"
+          url="https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}"
+          for i in 1 2 3 4; do git push -q "$url" study-data && break; sleep $((i * 7)); git pull -q --rebase "$url" study-data || true; done

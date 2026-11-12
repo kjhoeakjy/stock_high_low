@@ -1,0 +1,77 @@
+name: 분봉 수집
+run-name: "분봉 수집 ${{ inputs.mkt || 'J' }} top=${{ inputs.top || '100' }}"
+on:
+  workflow_dispatch:
+    inputs:
+      top:
+        description: "일별 상위 N 후보"
+        default: "100"
+      max_calls:
+        description: "이번 실행 최대 호출 수"
+        default: "20000"
+      mkt:
+        description: "J=KRX 09:00~09:30 | NX=넥스트레이드 프리마켓 08:00~09:00 | FULL=KRX 09:00~15:30 전 구간(상위 종목)"
+        default: "J"
+      oos:
+        description: "대상 선정용 예측 파일(기본 운영 검증 점수). 연구 파일은 study-data 브랜치에서 받음"
+        default: "oos_y_oc10.parquet"
+      score:
+        description: "점수 열"
+        default: "p"
+      pool:
+        description: "운영 점수 상위 N 안으로 제한(0=제한 없음)"
+        default: "0"
+  schedule:
+    # 평일 20:30 KST(장 마감 후, 애프터마켓 종료 후), 토 10:00 KST
+    - cron: "30 11 * * 1-5"
+    - cron: "0 1 * * 6"
+permissions:
+  contents: write
+concurrency:
+  group: stock-minute
+  cancel-in-progress: false
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    env:
+      PYTHONUNBUFFERED: "1"
+      KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
+      KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
+      KIS_ACCOUNT: ${{ secrets.KIS_ACCOUNT }}
+      KIS_MODE: real
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/code
+        with:
+          token: ${{ secrets.CODE_TOKEN }}
+          repo: ${{ vars.CODE_REPO }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q pandas pyarrow numpy
+      - name: 자료 받기
+        run: |
+          git fetch -q --depth=1 origin stock-data
+          mkdir -p stock/data
+          git --work-tree=stock/data checkout -q FETCH_HEAD -- 'oos_y_oc10.parquet*'
+          git reset -q
+          if git fetch -q --depth=1 origin minute-data 2>/dev/null; then git --work-tree=stock/data checkout -q FETCH_HEAD -- . ; git reset -q; fi
+          OOS="${{ inputs.oos || 'oos_y_oc10.parquet' }}"
+          if [ "$OOS" != "oos_y_oc10.parquet" ]; then git fetch -q --depth=1 origin study-data && git --work-tree=stock/data checkout -q FETCH_HEAD -- "$OOS*" && git reset -q; fi
+      - name: 자료 복호화(stock-data의 암호화 파일)
+        env:
+          PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
+        run: pip install -q cryptography >/dev/null 2>&1 || true; python -m stock.crypt dec "stock/data/*.enc"
+      - name: 수집
+        run: python -m stock.minute --top=${{ inputs.top || '100' }} --max_calls=${{ inputs.max_calls || '20000' }} --mkt=${{ inputs.mkt || 'J' }} --oos=${{ inputs.oos || 'oos_y_oc10.parquet' }} --score=${{ inputs.score || 'p' }} --pool=${{ inputs.pool || '0' }}
+      - name: 저장(minute-data 브랜치, 일일 수집의 stock-data 강제 푸시와 분리)
+        if: always()
+        env:
+          PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
+        run: |
+          rm -rf /tmp/md && mkdir -p /tmp/md && cp stock/data/minute_open.parquet stock/data/minute_done.json stock/data/minute_pre_* stock/data/minute_full* /tmp/md/ 2>/dev/null || true
+          # 수집 대상 목록에서 후보군이 드러나므로 공개 브랜치에는 암호문만 올림
+          rm -f /tmp/md/*.enc; python -m stock.crypt enc "/tmp/md/minute_*"
+          cd /tmp/md && git init -q -b minute-data && git config user.name github-actions && git config user.email actions@github.com
+          git add -A && git commit -qm "minute $(date -u +%Y%m%dT%H%M)" && git push -q -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" minute-data || echo "변경 없음"

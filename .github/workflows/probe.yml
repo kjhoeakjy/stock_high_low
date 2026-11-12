@@ -1,0 +1,20 @@
+name: 접속 점검
+on:
+  workflow_dispatch:
+    inputs:
+      script:
+        description: "stock/tools/ 아래 스크립트 이름"
+        default: "probe10.sh"
+  push:
+    paths: [.github/workflows/probe.yml, stock/tools/probe*.sh]
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/code
+        with:
+          token: ${{ secrets.CODE_TOKEN }}
+          repo: ${{ vars.CODE_REPO }}
+      - run: bash stock/tools/${{ inputs.script || 'probe10.sh' }}

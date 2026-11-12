@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>GOOD LUCK</title>
+<style>
+html,body{height:100%}
+body{margin:0;background:#0b0d10;color:#e6e8ec;font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard","Noto Sans KR",system-ui,sans-serif;display:flex;align-items:center;justify-content:center}
+form{width:min(320px,88vw);display:none;flex-direction:column;gap:10px}
+form.on{display:flex}
+h1{margin:0 0 6px;font-size:22px}
+input[type=password]{font-size:16px;padding:11px 12px;border-radius:8px;border:1px solid #1e2229;background:#111418;color:#e6e8ec;width:100%;box-sizing:border-box;font-family:inherit}
+button{font-size:15px;padding:11px;border-radius:8px;border:0;background:#e6e8ec;color:#0b0d10;cursor:pointer;font-weight:600;font-family:inherit}
+label{color:#8a909b;font-size:13px}
+.err{color:#f0565c;font-size:13px;min-height:18px}
+</style>
+</head>
+<body>
+<form id="f" autocomplete="off"><h1>GOOD LUCK</h1><input id="p" type="password" placeholder="비밀번호"><label><input id="k" type="checkbox"> 이 기기에 비밀번호 저장</label><button type="submit">열기</button><div class="err" id="e"></div></form>
+<script>
+(async()=>{
+  const $=i=>document.getElementById(i),b64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+  const f=$('f'),p=$('p'),er=$('e');
+  let doc=null;
+  const load=async()=>{const r=await fetch('app.html.enc?'+Date.now(),{cache:'no-store'});if(!r.ok)throw new Error(r.status);return r.json();};
+  const open_=async pw=>{
+    const te=new TextEncoder(),base=await crypto.subtle.importKey('raw',te.encode(pw),'PBKDF2',false,['deriveKey']);
+    const key=await crypto.subtle.deriveKey({name:'PBKDF2',salt:te.encode(doc.salt),iterations:doc.iter,hash:'SHA-256'},base,{name:'AES-GCM',length:256},false,['decrypt']);
+    let pt;try{pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:b64(doc.iv)},key,b64(doc.ct));}catch(x){return false;}
+    window.__GLK=key;
+    const html=new TextDecoder().decode(pt);
+    document.open();document.write(html);document.close();
+    return true;
+  };
+  try{doc=await load();}catch(x){f.classList.add('on');er.textContent='불러오기 실패';return;}
+  let saved='';try{saved=sessionStorage.getItem('pw')||localStorage.getItem('pw')||'';}catch(x){}
+  if(saved&&await open_(saved))return;
+  f.classList.add('on');p.focus();
+  f.onsubmit=async ev=>{ev.preventDefault();const pw=p.value;er.textContent='';
+    try{($('k').checked?localStorage:sessionStorage).setItem('pw',pw);}catch(x){}
+    if(!(await open_(pw))){try{sessionStorage.removeItem('pw');localStorage.removeItem('pw');}catch(x){}er.textContent='비밀번호 불일치';p.value='';p.focus();}
+  };
+})();
+</script>
+</body>
+</html>

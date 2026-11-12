@@ -1,0 +1,53 @@
+name: 비밀번호 교체(재암호화)
+# 사용법: Secret PAGE_PASSWORD_NEW(16자 이상) 등록 → 이 작업 수동 실행 → 성공 직후 PAGE_PASSWORD 값을 새 비밀번호로 수정, PAGE_PASSWORD_NEW 삭제.
+# 장중·학습 시간대에는 실행을 거부한다(평일 17:30~20:15, 21:30~23:00 KST와 주말만 허용).
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: stock-rekey
+jobs:
+  rekey:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
+      PAGE_PASSWORD_NEW: ${{ secrets.PAGE_PASSWORD_NEW }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/code
+        with:
+          token: ${{ secrets.CODE_TOKEN }}
+          repo: ${{ vars.CODE_REPO }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q cryptography
+      - name: 실행 가능 시간 확인
+        run: |
+          d=$(TZ=Asia/Seoul date +%u); t=$(TZ=Asia/Seoul date +%H%M)
+          if [ "$d" -le 5 ]; then
+            if { [ "$t" -ge 1730 ] && [ "$t" -le 2015 ]; } || { [ "$t" -ge 2130 ] && [ "$t" -le 2300 ]; }; then :; else
+              echo "::error::평일은 17:30~20:15, 21:30~23:00(KST)에만 실행 가능"; exit 1; fi
+          fi
+      - name: 브랜치별 재암호화 후 한꺼번에 푸시
+        run: |
+          set -e
+          url="https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}"
+          mkdir -p /tmp/rk
+          for b in main stock-data live study-data minute-data; do
+            git clone -q --depth=1 --branch "$b" "$url" "/tmp/rk/$b"
+          done
+          # 전부 성공해야 푸시(하나라도 풀리지 않으면 여기서 중단, 원격 변경 없음)
+          python -m stock.rekey /tmp/rk/main /tmp/rk/stock-data /tmp/rk/live /tmp/rk/study-data /tmp/rk/minute-data
+          for b in main stock-data live study-data minute-data; do
+            cd "/tmp/rk/$b"
+            git config user.name github-actions; git config user.email actions@github.com
+            git add -A
+            if git diff --cached --quiet; then echo "$b 변경 없음"; continue; fi
+            git commit -qm "비밀번호 교체"
+            # 그 사이 다른 작업이 올린 것이 있으면 실패 → 다시 실행(이미 교체된 파일은 건너뜀)
+            git push -q origin "HEAD:$b"
+            echo "$b 푸시 완료"
+          done

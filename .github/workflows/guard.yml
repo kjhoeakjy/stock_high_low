@@ -1,0 +1,53 @@
+name: 리스크 가드
+run-name: "리스크 가드"
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "status(조회) · pause(일시 중지, 주문 없음·보유 유지) · resume(재개) · liquidate(전량 매도) · halt(정지+청산) · eod(마감 점검)"
+        default: "status"
+        type: choice
+        options: [status, pause, resume, liquidate, halt, eod]
+  schedule:
+    # 평일 15:40 KST: 남은 보유 종목을 다음 거래일 매도 대기로 등록
+    - cron: "40 6 * * 1-5"
+permissions:
+  contents: write
+concurrency:
+  group: stock-live
+  cancel-in-progress: false
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
+      KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
+      KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
+      KIS_ACCOUNT: ${{ secrets.KIS_ACCOUNT }}
+      KIS_MODE: real
+      TRADE_MODE: ${{ vars.TRADE_MODE }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/code
+        with:
+          token: ${{ secrets.CODE_TOKEN }}
+          repo: ${{ vars.CODE_REPO }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q cryptography numpy pandas
+      - name: 상태 받기
+        run: |
+          mkdir -p live
+          if git fetch -q --depth=1 origin live 2>/dev/null; then git --work-tree=live checkout -q FETCH_HEAD -- 'guard.json*' 2>/dev/null || true; git reset -q; fi
+      - name: 실행
+        run: python -m stock.guard live ${{ inputs.action || 'eod' }}
+      - name: 상태 저장
+        run: |
+          cd live
+          if git fetch -q --depth=1 origin live 2>/dev/null; then :; fi
+          rm -rf /tmp/lv && mkdir -p /tmp/lv && cd /tmp/lv && git init -q -b live && git pull -q "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" live 2>/dev/null || true
+          cp "$GITHUB_WORKSPACE"/live/guard.json* /tmp/lv/ 2>/dev/null || true
+          git config user.name github-actions && git config user.email actions@github.com
+          git add -A && (git commit -qm "guard $(TZ=Asia/Seoul date +%Y-%m-%d_%H:%M)" && git push -q "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" HEAD:live) || echo "변경 없음"
