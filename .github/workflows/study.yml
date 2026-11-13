@@ -22,6 +22,9 @@ on:
       data:
         description: "받을 자료 브랜치(쉼표): stock-data,minute-data,llm-data,board-data"
         default: "stock-data,minute-data"
+      code_ref:
+        description: "코드 저장소 브랜치(비우면 기본 브랜치)"
+        default: ""
 permissions:
   contents: write
 jobs:
@@ -40,6 +43,7 @@ jobs:
         with:
           token: ${{ secrets.CODE_TOKEN }}
           repo: ${{ vars.CODE_REPO }}
+          ref: ${{ inputs.code_ref }}
       - uses: ./.github/actions/python
         with:
           packages: "-r stock/requirements.txt ${{ inputs.packages }}"

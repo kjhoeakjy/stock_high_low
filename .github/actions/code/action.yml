@@ -9,6 +9,10 @@ inputs:
     description: 코드 저장소(owner/name)
     required: false
     default: ""
+  ref:
+    description: 코드 저장소 브랜치(비우면 기본 브랜치)
+    required: false
+    default: ""
 runs:
   using: composite
   steps:
@@ -16,9 +20,10 @@ runs:
       env:
         TOK: ${{ inputs.token }}
         REPO: ${{ inputs.repo }}
+        REF: ${{ inputs.ref }}
       run: |
         if [ -z "$TOK" ] || [ -z "$REPO" ]; then echo "저장소 내 코드 사용"; exit 0; fi
         rm -rf "$RUNNER_TEMP/_code"
-        git clone -q --depth=1 "https://x-access-token:${TOK}@github.com/${REPO}" "$RUNNER_TEMP/_code" 2>/dev/null || { echo "::error::코드 받기 실패"; exit 1; }
+        git clone -q --depth=1 ${REF:+--branch "$REF"} "https://x-access-token:${TOK}@github.com/${REPO}" "$RUNNER_TEMP/_code" 2>/dev/null || { echo "::error::코드 받기 실패"; exit 1; }
         rm -rf stock && cp -r "$RUNNER_TEMP/_code/stock" stock && rm -rf "$RUNNER_TEMP/_code"
         echo "코드 준비 완료"
