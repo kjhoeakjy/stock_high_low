@@ -148,7 +148,7 @@ jobs:
           # 비밀번호가 설정되어 있으면 남은 평문을 모두 암호화(최초 1회 변환 포함)
           python -m stock.crypt docs/latest.json docs/scores.json docs/perf.json docs/history/*.json
           rm -rf /tmp/out && mkdir -p /tmp/out
-          for f in latest.json latest.json.enc scores.json scores.json.enc perf.json perf.json.enc gap_curve.json.enc history; do [ -e "docs/$f" ] && cp -r "docs/$f" /tmp/out/; done
+          for f in latest.json latest.json.enc scores.json scores.json.enc perf.json perf.json.enc gap_curve.json.enc detail100.json.enc history; do [ -e "docs/$f" ] && cp -r "docs/$f" /tmp/out/; done
           git fetch -q origin ${{ github.ref_name }}
           git reset -q --hard origin/${{ github.ref_name }}
           # 장중 발행 금지: 당일 07:00(KST) 이후 발행분이 이미 있고 지금이 08:50~15:30(KST)이면 매수에 쓰인 추천안을 바꾸지 않음(2026-11-09 09:17 재발행 사고)
