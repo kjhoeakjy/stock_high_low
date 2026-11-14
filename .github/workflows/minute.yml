@@ -55,6 +55,7 @@ jobs:
           git fetch -q --depth=1 origin stock-data
           mkdir -p stock/data
           git --work-tree=stock/data checkout -q FETCH_HEAD -- 'oos_y_oc10.parquet*'
+          git --work-tree=stock/data checkout -q FETCH_HEAD -- 'need_full.json*' 2>/dev/null || true  # 체결 재현에서 근사한 종목일(전 구간 분봉 우선 보충 대상)
           git reset -q
           if git fetch -q --depth=1 origin minute-data 2>/dev/null; then git --work-tree=stock/data checkout -q FETCH_HEAD -- . ; git reset -q; fi
           OOS="${{ inputs.oos || 'oos_y_oc10.parquet' }}"
