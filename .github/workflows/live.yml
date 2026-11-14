@@ -84,6 +84,8 @@ jobs:
             [ -n "$FORCE" ] && break
             # 한 작업은 최대 4시간 50분(다음 예약 실행이 이어받음)
             [ $(( $(date +%s) - start )) -gt 17400 ] && break
-            el=$(( $(date +%s) - t0 )); [ $el -lt 30 ] && sleep $(( 30 - el ))
+            # 청산 시각 전후(15:16~15:21)는 10초 주기로 체결 확인·재주문 횟수를 늘림. 그 외 30초
+            iv=30; hmn=$(TZ=Asia/Seoul date +%H%M); [ "$hmn" -ge 1516 ] && [ "$hmn" -le 1521 ] && iv=10
+            el=$(( $(date +%s) - t0 )); [ $el -lt $iv ] && sleep $(( iv - el ))
           done
           echo "종료 rc=$rc"
