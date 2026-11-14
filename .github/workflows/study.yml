@@ -58,6 +58,10 @@ jobs:
       - name: 실행(예측 파일을 쓰는 모듈은 같은 비밀번호로 암호화해 저장)
         env:
           PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
+          KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
+          KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
+          KIS_ACCOUNT: ${{ secrets.KIS_ACCOUNT }}
+          KIS_MODE: real
         run: python -m ${{ inputs.module }} ${{ inputs.args }}
       - name: 결과 저장(study-data 브랜치, stock/data/study_* 파일)
         if: always()
