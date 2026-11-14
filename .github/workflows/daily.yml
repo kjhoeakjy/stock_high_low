@@ -90,7 +90,7 @@ jobs:
       - name: 수집
         run: |
           # 전날 밤 실행이 올린 일봉·수급을 먼저 복원 → 최신이면 collect가 재수집 생략
-          if git fetch -q --depth=1 origin stock-data 2>/dev/null; then for f in prices.parquet flows.parquet; do git --work-tree=stock/data checkout -q FETCH_HEAD -- "$f" 2>/dev/null || true; done; git reset -q; fi
+          if git fetch -q --depth=1 origin stock-data 2>/dev/null; then for f in prices.parquet flows.parquet krx_daily.parquet krx_daily.at; do git --work-tree=stock/data checkout -q FETCH_HEAD -- "$f" 2>/dev/null || true; done; git reset -q; fi
           python -m stock.collect
           python -m stock.collect_text
           python -m stock.collect_extra
