@@ -78,6 +78,8 @@ jobs:
       KIS_ACCOUNT: ${{ secrets.KIS_ACCOUNT }}
       KIS_MODE: real
       PYTHONUNBUFFERED: "1"
+      # 큰 배열을 해제 즉시 운영체제에 반환(기본 설정은 프로세스가 계속 쥐고 있어 16GB 서버에서 여유 0.2GB까지 내려감, 2026-11-17 서버 끊김 원인). 계산 결과에는 영향 없음
+      MALLOC_MMAP_THRESHOLD_: "1048576"
     steps:
       - uses: actions/checkout@v4
       - name: Git Bash 경로(노트북)
