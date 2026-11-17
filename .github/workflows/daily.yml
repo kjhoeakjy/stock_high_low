@@ -140,10 +140,18 @@ jobs:
           if ! ls stock/data/oos_y_gap.parquet* >/dev/null 2>&1 && git fetch -q --depth=1 origin study-data 2>/dev/null; then git --work-tree=stock/data checkout -q FETCH_HEAD -- study_gap_oos.parquet.enc 2>/dev/null || true; git reset -q; fi
           python -m stock.crypt dec "stock/data/*.enc"  # 암호화된 예측 캐시·장부 복원
           ls -la stock/data/oos_* 2>/dev/null || echo "::warning::[wf] 검증 캐시 없음 → 전체 재계산(2시간 이상)"
-          # 실행 서버 연결 끊김(2026-11-17) 원인 추적: 1분마다 메모리 사용량 기록(MB)
-          ( while sleep 60; do echo "[mem] $(date -u +%H:%M) $(free -m 2>/dev/null | awk 'NR==2{print "used "$3" avail "$7}') $(free -m 2>/dev/null | awk 'NR==3{print "swap "$3}') load $(cut -d' ' -f1 /proc/loadavg 2>/dev/null)"; done ) &
+          # 실행 서버 연결 끊김(2026-11-17) 원인 추적: 1분마다 메모리(MB)·진행 단계를 diag 브랜치에 기록(서버가 끊기면 실행 로그가 사라지므로 외부에 남김)
+          rm -rf /tmp/dg && mkdir -p /tmp/dg && : > /tmp/run.log
+          (cd /tmp/dg && git init -q -b diag && git config user.name github-actions && git config user.email actions@github.com)
+          ( while sleep 60; do
+              m="[mem] $(date -u +%H:%M) $(free -m 2>/dev/null | awk 'NR==2{print "used "$3" avail "$7}') $(free -m 2>/dev/null | awk 'NR==3{print "swap "$3}') py_rss $(ps -o rss= -C python 2>/dev/null | sort -n | tail -1 | awk '{print int($1/1024)}') load $(cut -d' ' -f1 /proc/loadavg 2>/dev/null)"
+              echo "$m"; echo "$m" >> /tmp/dg/mem.txt
+              grep -a '^\[wf \|^\[final \|^\[run\]\|^\[gaplive\]\|^\[stage\]' /tmp/run.log > /tmp/dg/stage.txt 2>/dev/null || true
+              echo "run ${{ github.run_id }} runner ${{ inputs.runner || 'ubuntu-latest' }} emergency ${{ inputs.emergency }}" > /tmp/dg/run.txt
+              (cd /tmp/dg && git add -A && git commit -qm diag --amend 2>/dev/null || git commit -qm diag; git push -q -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" "diag:diag-${{ inputs.runner || 'ubuntu-latest' }}") >/dev/null 2>&1 || true
+            done ) &
           mem_pid=$!
-          rc=0; STOCK_EMERGENCY=${{ inputs.emergency && '1' || '0' }} python -m stock.run ${{ inputs.fast && '--fast' || '' }} || rc=$?
+          STOCK_EMERGENCY=${{ inputs.emergency && '1' || '0' }} python -m stock.run ${{ inputs.fast && '--fast' || '' }} 2>&1 | tee /tmp/run.log; rc=${PIPESTATUS[0]}
           kill $mem_pid 2>/dev/null || true
           exit $rc
       - name: 데이터 브랜치 갱신
