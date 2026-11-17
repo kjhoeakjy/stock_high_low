@@ -1,0 +1,15 @@
+name: runner-probe
+run-name: "실행 환경 점검 ${{ inputs.runner }}"
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: "laptop | gpu"
+        default: "laptop"
+jobs:
+  probe:
+    runs-on: ${{ fromJSON(format('["self-hosted","{0}"]', inputs.runner)) }}
+    timeout-minutes: 3
+    steps:
+      - run: |
+          echo "[probe] cpu $(nproc) mem $(free -g 2>/dev/null | awk 'NR==2{print $2}')GB"
