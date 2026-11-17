@@ -121,7 +121,10 @@ jobs:
           ls -la stock/data/oos_* 2>/dev/null || echo "::warning::[wf] 검증 캐시 없음 → 전체 재계산(2시간 이상)"
           # 실행 서버 연결 끊김(2026-11-17) 원인 추적: 1분마다 메모리 사용량 기록(MB)
           ( while sleep 60; do echo "[mem] $(date -u +%H:%M) $(free -m | awk 'NR==2{print "used "$3" avail "$7}') $(free -m | awk 'NR==3{print "swap "$3}') load $(cut -d' ' -f1 /proc/loadavg)"; done ) &
-          python -m stock.run ${{ inputs.fast && '--fast' || '' }}
+          mem_pid=$!
+          rc=0; python -m stock.run ${{ inputs.fast && '--fast' || '' }} || rc=$?
+          kill $mem_pid 2>/dev/null || true
+          exit $rc
       - name: 데이터 브랜치 갱신
         run: |
           # 공개 브랜치에 계좌 평문 금지: 비밀번호가 있으면 암호문만 남김
