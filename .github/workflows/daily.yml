@@ -47,6 +47,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.ref_name }}  # 대기 중에 다른 실행이 발행한 결과도 보이도록 실행 시점의 최신 커밋 기준(2026-11-17: 대기 실행이 발행분을 못 보고 장중에 다시 시작됨)
           fetch-depth: 50
       - id: c
         name: 당일 발행 여부 확인
