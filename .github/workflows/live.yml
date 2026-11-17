@@ -77,7 +77,8 @@ jobs:
           if [ -n "$PAGE_PASSWORD" ]; then python -m stock.crypt live/live.json live/snap/*.csv; rm -f live/live.json live/snap/*.csv; else rm -f live/live.json.enc live/snap/*.csv.enc; fi
           while :; do
             t0=$(date +%s)
-            [ "$(TZ=Asia/Seoul date +%H%M)" -lt 0858 ] && refresh
+            # 08:58 전에는 매 주기 갱신. 당일 발행이 늦은 날(2026-11-17)에는 매수 창이 끝나는 09:20까지 계속 갱신해 발행 즉시 반영
+            [ "$(TZ=Asia/Seoul date +%H%M)" -lt 0921 ] && refresh
             python -m stock.live live $FORCE; rc=$?
             [ "$rc" = 3 ] && break
             push
