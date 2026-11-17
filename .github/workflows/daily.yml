@@ -80,6 +80,13 @@ jobs:
       PYTHONUNBUFFERED: "1"
     steps:
       - uses: actions/checkout@v4
+      - name: Git Bash 경로(노트북)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          # 실행기 서비스 계정은 WSL bash.exe가 먼저 잡혀 bash 단계가 실패함 → Git Bash를 PATH 앞에
+          $gitroot = Split-Path (Split-Path (Get-Command git).Source)
+          foreach ($d in @("$gitroot\bin", "$gitroot\usr\bin")) { if (Test-Path $d) { Add-Content $env:GITHUB_PATH $d } }
       - uses: ./.github/actions/code
         with:
           token: ${{ secrets.CODE_TOKEN }}
