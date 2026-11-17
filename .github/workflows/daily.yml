@@ -119,6 +119,8 @@ jobs:
           if ! ls stock/data/oos_y_gap.parquet* >/dev/null 2>&1 && git fetch -q --depth=1 origin study-data 2>/dev/null; then git --work-tree=stock/data checkout -q FETCH_HEAD -- study_gap_oos.parquet.enc 2>/dev/null || true; git reset -q; fi
           python -m stock.crypt dec "stock/data/*.enc"  # 암호화된 예측 캐시·장부 복원
           ls -la stock/data/oos_* 2>/dev/null || echo "::warning::[wf] 검증 캐시 없음 → 전체 재계산(2시간 이상)"
+          # 실행 서버 연결 끊김(2026-11-17) 원인 추적: 1분마다 메모리 사용량 기록(MB)
+          ( while sleep 60; do echo "[mem] $(date -u +%H:%M) $(free -m | awk 'NR==2{print "used "$3" avail "$7}') $(free -m | awk 'NR==3{print "swap "$3}') load $(cut -d' ' -f1 /proc/loadavg)"; done ) &
           python -m stock.run ${{ inputs.fast && '--fast' || '' }}
       - name: 데이터 브랜치 갱신
         run: |
