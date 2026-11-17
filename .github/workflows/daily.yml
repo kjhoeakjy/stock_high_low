@@ -12,6 +12,13 @@ on:
         description: "결과를 화면에 발행(끄면 시험 실행: 자료·모형 캐시만 갱신)"
         type: boolean
         default: true
+      emergency:
+        description: "비상 실행: 마지막 성공 모형·검증 결과 재사용, 최신 자료 순위만 산정(재학습 생략, 약 15~25분)"
+        type: boolean
+        default: false
+      runner:
+        description: "실행 위치: ubuntu-latest(GitHub 서버) | laptop(노트북, GitHub 서버 장애 시 대체)"
+        default: "ubuntu-latest"
   push:
     branches: [main]
     paths: [.github/workflows/daily.yml]
@@ -27,8 +34,9 @@ on:
 permissions:
   contents: write
 
+# 실행 위치별로 묶음을 분리: GitHub 서버 실행이 멈춰 있어도 노트북 대체 실행이 대기하지 않고 바로 시작
 concurrency:
-  group: stock-daily
+  group: stock-daily${{ (inputs.runner && inputs.runner != 'ubuntu-latest') && format('-{0}', inputs.runner) || '' }}
   cancel-in-progress: false
 
 jobs:
@@ -56,7 +64,10 @@ jobs:
   predict:
     needs: check
     if: needs.check.outputs.skip != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ (inputs.runner == 'ubuntu-latest' || inputs.runner == '') && 'ubuntu-latest' || fromJSON(format('["self-hosted","{0}"]', inputs.runner)) }}
+    defaults:
+      run:
+        shell: bash -e {0}  # GitHub 서버 기본값과 동일(노트북은 Git Bash)
     timeout-minutes: 300  # 변수·코드 변경으로 검증 캐시를 전부 다시 계산하는 날(약 2시간+)도 끝까지 저장되도록(평소 20~40분)
     env:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -72,10 +83,9 @@ jobs:
         with:
           token: ${{ secrets.CODE_TOKEN }}
           repo: ${{ vars.CODE_REPO }}
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/python
         with:
-          python-version: "3.12"
-      - run: pip install -q -r stock/requirements.txt anthropic
+          packages: "-r stock/requirements.txt anthropic"
       - uses: actions/cache@v4
         with:
           path: stock/cache
@@ -85,6 +95,7 @@ jobs:
         # 최종 모형(전날 밤 학습분) — 비공개 Actions 캐시. 학습 자료가 같으면 아침에 재사용(약 14분 단축), 다르면 재학습
         with:
           path: stock/data/final_models
+          enableCrossOsArchive: true  # 노트북(Windows) 대체 실행도 같은 모형 캐시 사용
           key: final-models-${{ github.run_id }}
           restore-keys: final-models-
       - name: 수집
@@ -100,6 +111,8 @@ jobs:
       - name: 토론방 증분 수집
         run: |
           if git fetch -q --depth=1 origin board-data 2>/dev/null; then git --work-tree=stock/data checkout -q FETCH_HEAD -- . ; git reset -q; fi
+          # 비상 실행은 증분 수집(약 4분)을 건너뛰고 기존 자료만 복원해 사용
+          if [ "${{ inputs.emergency }}" = "true" ]; then echo "[board] 비상 실행 · 증분 수집 생략"; exit 0; fi
           python -m stock.collect_board || echo "[board] 수집 실패 → 기존 자료로 진행"
           if [ -f stock/data/board.parquet ]; then
             mkdir -p /tmp/bd && cp stock/data/board.parquet stock/data/board_state.json /tmp/bd/
@@ -120,9 +133,9 @@ jobs:
           python -m stock.crypt dec "stock/data/*.enc"  # 암호화된 예측 캐시·장부 복원
           ls -la stock/data/oos_* 2>/dev/null || echo "::warning::[wf] 검증 캐시 없음 → 전체 재계산(2시간 이상)"
           # 실행 서버 연결 끊김(2026-11-17) 원인 추적: 1분마다 메모리 사용량 기록(MB)
-          ( while sleep 60; do echo "[mem] $(date -u +%H:%M) $(free -m | awk 'NR==2{print "used "$3" avail "$7}') $(free -m | awk 'NR==3{print "swap "$3}') load $(cut -d' ' -f1 /proc/loadavg)"; done ) &
+          ( while sleep 60; do echo "[mem] $(date -u +%H:%M) $(free -m 2>/dev/null | awk 'NR==2{print "used "$3" avail "$7}') $(free -m 2>/dev/null | awk 'NR==3{print "swap "$3}') load $(cut -d' ' -f1 /proc/loadavg 2>/dev/null)"; done ) &
           mem_pid=$!
-          rc=0; python -m stock.run ${{ inputs.fast && '--fast' || '' }} || rc=$?
+          rc=0; STOCK_EMERGENCY=${{ inputs.emergency && '1' || '0' }} python -m stock.run ${{ inputs.fast && '--fast' || '' }} || rc=$?
           kill $mem_pid 2>/dev/null || true
           exit $rc
       - name: 데이터 브랜치 갱신
@@ -161,6 +174,8 @@ jobs:
           today7=$(TZ=Asia/Seoul date -d "$(TZ=Asia/Seoul date +%Y-%m-%d) 07:00" +%s)
           hm=$(TZ=Asia/Seoul date +%H%M)
           if [ "${last:-0}" -ge "$today7" ] && [ "$hm" -ge 0850 ] && [ "$hm" -le 1530 ]; then echo "[publish] 장중 재발행 생략(당일 발행분 유지)"; exit 0; fi
+          # 비상·대체 실행은 다른 실행이 먼저 당일분을 발행했으면 덮어쓰지 않음(이중 실행 시 추천안 변경 방지)
+          if [ "${last:-0}" -ge "$today7" ] && [ "$hm" -lt 1530 ] && { [ "${{ inputs.emergency }}" = "true" ] || [ "${{ inputs.runner || 'ubuntu-latest' }}" != "ubuntu-latest" ]; }; then echo "[publish] 당일 발행분 있음 → 비상·대체 실행 발행 생략"; exit 0; fi
           if [ -n "$PAGE_PASSWORD" ]; then rm -f docs/latest.json docs/scores.json docs/perf.json docs/history/*.json; else rm -f docs/*.json.enc docs/history/*.json.enc; fi
           cp -r /tmp/out/. docs/
           git add docs
