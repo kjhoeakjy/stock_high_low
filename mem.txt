@@ -1,0 +1,5 @@
+[mem] 22:46 used 8106 avail 7594 swap 0 py_rss 7069 load 0.70
+[mem] 22:47 used 10849 avail 4851 swap 0 py_rss 9734 load 1.74
+[mem] 22:48 used 10859 avail 4841 swap 0 py_rss 9995 load 4.19
+[mem] 22:49 used 10874 avail 4825 swap 0 py_rss 10013 load 5.01
+[mem] 22:50 used 2353 avail 13347 swap 0 py_rss 1497 load 3.15
