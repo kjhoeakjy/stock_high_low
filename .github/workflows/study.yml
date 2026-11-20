@@ -58,7 +58,7 @@ jobs:
           for b in $(echo "${{ inputs.data || 'stock-data,minute-data' }}" | tr ',' ' '); do
             git fetch -q --depth=1 origin $b && git --work-tree=stock/data checkout -q FETCH_HEAD -- . && git reset -q || echo "브랜치 없음 $b"
           done
-          ls -la stock/data | head -40
+          ls -la stock/data | head -40 || true
       - name: 자료 복호화(stock-data의 암호화 파일)
         env:
           PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
