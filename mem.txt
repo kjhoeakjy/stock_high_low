@@ -1,0 +1,17 @@
+[mem] 23:23 used 8247 avail 7734 swap 0 py_rss 7028 load 0.80
+[mem] 23:24 used 8347 avail 7634 swap 0 py_rss 7101 load 2.39
+[mem] 23:25 used 8025 avail 7956 swap 0 py_rss 7113 load 4.14
+[mem] 23:26 used 8778 avail 7203 swap 0 py_rss 7559 load 3.91
+[mem] 23:27 used 8493 avail 7488 swap 0 py_rss 7570 load 4.87
+[mem] 23:28 used 8486 avail 7495 swap 0 py_rss 7575 load 4.93
+[mem] 23:29 used 8490 avail 7491 swap 0 py_rss 7570 load 4.70
+[mem] 23:31 used 8475 avail 7506 swap 0 py_rss 7571 load 4.86
+[mem] 23:32 used 8468 avail 7513 swap 0 py_rss 7572 load 4.65
+[mem] 23:33 used 8581 avail 7400 swap 0 py_rss 7587 load 5.41
+[mem] 23:34 used 8523 avail 7458 swap 0 py_rss 7591 load 5.81
+[mem] 23:35 used 8513 avail 7468 swap 0 py_rss 7591 load 5.66
+[mem] 23:36 used 8275 avail 7706 swap 0 py_rss 7239 load 5.17
+[mem] 23:37 used 8162 avail 7819 swap 0 py_rss 7252 load 5.19
+[mem] 23:38 used 11002 avail 4980 swap 0 py_rss 10080 load 5.04
+[mem] 23:39 used 10993 avail 4988 swap 0 py_rss 10080 load 5.30
+[mem] 23:40 used 2979 avail 13002 swap 0 py_rss 2006 load 3.78
